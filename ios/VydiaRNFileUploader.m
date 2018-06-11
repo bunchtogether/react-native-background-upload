@@ -250,7 +250,7 @@ RCT_EXPORT_METHOD(startUpload:(NSDictionary *)options resolve:(RCTPromiseResolve
             [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
             NSData *httpBody = [VydiaRNFileUploader normalizedJSONRequestBody:parameters];
             [request setHTTPBody:httpBody];
-            uploadTask = [_urlSession uploadTaskWithRequest:request fromData:nil];
+            uploadTask = [[self urlSession] uploadTaskWithRequest:request fromData:nil];
         } else {
             if (parameters.count > 0) {
                 reject(@"RN Uploader", @"Parameters supported only in 'multipart' and 'json' type", nil);
