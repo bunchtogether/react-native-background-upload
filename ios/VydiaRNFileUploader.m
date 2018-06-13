@@ -79,6 +79,7 @@ NSURLSession *_urlSession = nil;
         staticEventEmitter = self;
         _responsesData = [NSMutableDictionary dictionary];
         _activeUploads = NO;
+        [self dequeue];
     }
     return self;
 }
@@ -199,7 +200,6 @@ RCT_EXPORT_METHOD(getFileInfo:(NSString *)path resolve:(RCTPromiseResolveBlock)r
     NSString *method = options[@"method"] ?: @"POST";
     NSString *uploadType = options[@"type"] ?: @"raw";
     NSString *fieldName = options[@"field"];
-    NSString *customUploadId = options[@"customUploadId"];
     NSDictionary *headers = options[@"headers"];
     NSDictionary *parameters = options[@"parameters"];
     
@@ -239,6 +239,17 @@ RCT_EXPORT_METHOD(getFileInfo:(NSString *)path resolve:(RCTPromiseResolveBlock)r
             dispatch_group_leave(group);
         }];
         dispatch_group_wait(group, DISPATCH_TIME_FOREVER);
+    }
+
+    if([uploadType isEqualToString:@"multipart"] || [uploadType isEqualToString:@"raw"]) {
+        NSString *path = [[NSURL URLWithString:fileURI] path];
+        BOOL fileExists = [[NSFileManager defaultManager] fileExistsAtPath:path];
+        if(!fileExists) {
+            RCTLog(@"RN Uploader: File does not exist %@.", path);
+            [defaults removeObjectForKey:uploadId];
+            [defaults setObject:[uploadIds subarrayWithRange:NSMakeRange(1, [uploadIds count] - 1)] forKey:@"backgroundUploads"];
+            return [self dequeue];
+        }
     }
     
     NSURLSessionDataTask *uploadTask;
@@ -291,6 +302,7 @@ RCT_EXPORT_METHOD(startUpload:(NSDictionary *)options resolve:(RCTPromiseResolve
     NSMutableArray *uploadIds = ids ? [ids mutableCopy] : [[NSMutableArray alloc] init];
     [uploadIds addObject:uploadId];
     [defaults setObject:[uploadIds copy] forKey:@"backgroundUploads"];
+    [defaults synchronize];
     [self dequeue];
     resolve(uploadId);
 }
