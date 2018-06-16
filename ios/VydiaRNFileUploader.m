@@ -180,11 +180,13 @@ RCT_EXPORT_METHOD(getFileInfo:(NSString *)path resolve:(RCTPromiseResolveBlock)r
     if(_activeUploads) {
         return;
     }
+    _activeUploads = YES;
     NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
     NSArray *uploadIds = [defaults stringArrayForKey: @"backgroundUploads"];
     NSString *uploadId = [uploadIds firstObject];
     if(uploadId == nil) {
         // Queue is empty
+        _activeUploads = NO;
         return;
     }
     
@@ -192,6 +194,7 @@ RCT_EXPORT_METHOD(getFileInfo:(NSString *)path resolve:(RCTPromiseResolveBlock)r
     if(options == nil) {
         // Options does not exist
         [defaults setObject:[uploadIds subarrayWithRange:NSMakeRange(1, [uploadIds count] - 1)] forKey:@"backgroundUploads"];
+        _activeUploads = NO;
         return [self dequeue];
     }
     
@@ -208,6 +211,7 @@ RCT_EXPORT_METHOD(getFileInfo:(NSString *)path resolve:(RCTPromiseResolveBlock)r
         RCTLogError(@"RN Uploader: Request cannot be nil.");
         [defaults removeObjectForKey:uploadId];
         [defaults setObject:[uploadIds subarrayWithRange:NSMakeRange(1, [uploadIds count] - 1)] forKey:@"backgroundUploads"];
+        _activeUploads = NO;
         return [self dequeue];
     }
     
@@ -233,6 +237,7 @@ RCT_EXPORT_METHOD(getFileInfo:(NSString *)path resolve:(RCTPromiseResolveBlock)r
                 RCTLogError(@"RN Uploader: Asset could not be copied to temp file.");
                 [defaults removeObjectForKey:uploadId];
                 [defaults setObject:[uploadIds subarrayWithRange:NSMakeRange(1, [uploadIds count] - 1)] forKey:@"backgroundUploads"];
+                _activeUploads = NO;
                 return [self dequeue];
             }
             fileURI = tempFileUrl;
@@ -248,6 +253,7 @@ RCT_EXPORT_METHOD(getFileInfo:(NSString *)path resolve:(RCTPromiseResolveBlock)r
             RCTLog(@"RN Uploader: File does not exist %@.", path);
             [defaults removeObjectForKey:uploadId];
             [defaults setObject:[uploadIds subarrayWithRange:NSMakeRange(1, [uploadIds count] - 1)] forKey:@"backgroundUploads"];
+            _activeUploads = NO;
             return [self dequeue];
         }
     }
@@ -271,15 +277,15 @@ RCT_EXPORT_METHOD(getFileInfo:(NSString *)path resolve:(RCTPromiseResolveBlock)r
             RCTLogError(@"RN Uploader: Parameters supported only in 'multipart' and 'json' type");
             [defaults removeObjectForKey:uploadId];
             [defaults setObject:[uploadIds subarrayWithRange:NSMakeRange(1, [uploadIds count] - 1)] forKey:@"backgroundUploads"];
+            _activeUploads = NO;
             return [self dequeue];
         }
         uploadTask = [[self urlSession] uploadTaskWithRequest:request fromFile:[NSURL URLWithString: fileURI]];
     }
     
     uploadTask.taskDescription = uploadId;
-    _activeUploads = YES;
+    NSLog(@"Request: %@ | %@", requestUrl.absoluteString, uploadId);
     [uploadTask resume];
-    
 }
 
 /*
@@ -302,7 +308,6 @@ RCT_EXPORT_METHOD(startUpload:(NSDictionary *)options resolve:(RCTPromiseResolve
     NSMutableArray *uploadIds = ids ? [ids mutableCopy] : [[NSMutableArray alloc] init];
     [uploadIds addObject:uploadId];
     [defaults setObject:[uploadIds copy] forKey:@"backgroundUploads"];
-    [defaults synchronize];
     [self dequeue];
     resolve(uploadId);
 }
@@ -395,9 +400,9 @@ didCompleteWithError:(NSError *)error {
             [self _sendEventWithName:@"RNFileUploader-error" body:data];
         }
     }
-    _activeUploads = NO;
     NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
     [defaults removeObjectForKey:task.taskDescription];
+    _activeUploads = NO;
     [self dequeue];
 }
 
