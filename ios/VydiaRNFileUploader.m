@@ -414,7 +414,10 @@ didCompleteWithError:(NSError *)error {
     }
     NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
     [defaults removeObjectForKey:task.taskDescription];
-    _activeUploads = NO;
+    NSLog(@"didCompleteWithError: %@", task.taskDescription);
+    @synchronized(self) {
+        _activeUploads = NO;
+    }
     [self dequeue];
 }
 
