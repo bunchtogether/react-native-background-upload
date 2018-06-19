@@ -19,7 +19,6 @@ extern NSString *const FILE_PREFIX = @"file://";
 RCT_EXPORT_MODULE();
 
 @synthesize bridge = _bridge;
-static int uploadId = 0;
 static RCTEventEmitter* staticEventEmitter = nil;
 static NSString *BACKGROUND_SESSION_ID = @"ReactNativeBackgroundUpload";
 NSURLSession *_urlSession = nil;
@@ -177,115 +176,122 @@ RCT_EXPORT_METHOD(getFileInfo:(NSString *)path resolve:(RCTPromiseResolveBlock)r
 }
 
 - (void)dequeue {
-    if(_activeUploads) {
-        return;
-    }
-    _activeUploads = YES;
-    NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
-    NSArray *uploadIds = [defaults stringArrayForKey: @"backgroundUploads"];
-    NSString *uploadId = [uploadIds firstObject];
-    if(uploadId == nil) {
-        // Queue is empty
-        _activeUploads = NO;
-        return;
-    }
-    
-    NSDictionary *options = [defaults dictionaryForKey: uploadId];
-    if(options == nil) {
-        // Options does not exist
-        [defaults setObject:[uploadIds subarrayWithRange:NSMakeRange(1, [uploadIds count] - 1)] forKey:@"backgroundUploads"];
-        _activeUploads = NO;
-        return [self dequeue];
-    }
-    
-    NSString *uploadUrl = options[@"url"];
-    __block NSString *fileURI = options[@"path"];
-    NSString *method = options[@"method"] ?: @"POST";
-    NSString *uploadType = options[@"type"] ?: @"raw";
-    NSString *fieldName = options[@"field"];
-    NSDictionary *headers = options[@"headers"];
-    NSDictionary *parameters = options[@"parameters"];
-    
-    NSURL *requestUrl = [NSURL URLWithString: uploadUrl];
-    if (requestUrl == nil) {
-        RCTLogError(@"RN Uploader: Request cannot be nil.");
-        [defaults removeObjectForKey:uploadId];
-        [defaults setObject:[uploadIds subarrayWithRange:NSMakeRange(1, [uploadIds count] - 1)] forKey:@"backgroundUploads"];
-        _activeUploads = NO;
-        return [self dequeue];
-    }
-    
-    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:requestUrl];
-    [request setHTTPMethod: method];
-    
-    [headers enumerateKeysAndObjectsUsingBlock:^(id  _Nonnull key, id  _Nonnull val, BOOL * _Nonnull stop) {
-        if ([val respondsToSelector:@selector(stringValue)]) {
-            val = [val stringValue];
+    @synchronized(self) {
+        if(_activeUploads) {
+            NSLog(@"Uploads currently active, skipping");
+            return;
         }
-        if ([val isKindOfClass:[NSString class]]) {
-            [request setValue:val forHTTPHeaderField:key];
+        NSLog(@"Dequeing");
+        _activeUploads = YES;
+        NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
+        NSArray *uploadIds = [defaults stringArrayForKey: @"backgroundUploads"];
+        NSString *uploadId = [uploadIds firstObject];
+        if(uploadId == nil) {
+            // Queue is empty
+            NSLog(@"Queue is empty");
+            _activeUploads = NO;
+            return;
         }
-    }];
-    
-    // asset library files have to be copied over to a temp file.  they can't be uploaded directly
-    if ([fileURI hasPrefix:@"assets-library"]) {
-        dispatch_group_t group = dispatch_group_create();
-        dispatch_group_enter(group);
-        [self copyAssetToFile:fileURI completionHandler:^(NSString * _Nullable tempFileUrl, NSError * _Nullable error) {
-            if (error) {
+        
+        NSDictionary *options = [defaults dictionaryForKey: uploadId];
+        if(options == nil) {
+            // Options does not exist
+            [defaults setObject:[uploadIds subarrayWithRange:NSMakeRange(1, [uploadIds count] - 1)] forKey:@"backgroundUploads"];
+            _activeUploads = NO;
+            return [self dequeue];
+        }
+        
+        NSLog(@"Uploading %@", uploadId);
+        
+        NSString *uploadUrl = options[@"url"];
+        __block NSString *fileURI = options[@"path"];
+        NSString *method = options[@"method"] ?: @"POST";
+        NSString *uploadType = options[@"type"] ?: @"raw";
+        NSString *fieldName = options[@"field"];
+        NSDictionary *headers = options[@"headers"];
+        NSDictionary *parameters = options[@"parameters"];
+        
+        NSURL *requestUrl = [NSURL URLWithString: uploadUrl];
+        if (requestUrl == nil) {
+            RCTLogError(@"RN Uploader: Request cannot be nil.");
+            [defaults removeObjectForKey:uploadId];
+            [defaults setObject:[uploadIds subarrayWithRange:NSMakeRange(1, [uploadIds count] - 1)] forKey:@"backgroundUploads"];
+            _activeUploads = NO;
+            return [self dequeue];
+        }
+        
+        NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:requestUrl];
+        [request setHTTPMethod: method];
+        
+        [headers enumerateKeysAndObjectsUsingBlock:^(id  _Nonnull key, id  _Nonnull val, BOOL * _Nonnull stop) {
+            if ([val respondsToSelector:@selector(stringValue)]) {
+                val = [val stringValue];
+            }
+            if ([val isKindOfClass:[NSString class]]) {
+                [request setValue:val forHTTPHeaderField:key];
+            }
+        }];
+        
+        // asset library files have to be copied over to a temp file.  they can't be uploaded directly
+        if ([fileURI hasPrefix:@"assets-library"]) {
+            dispatch_group_t group = dispatch_group_create();
+            dispatch_group_enter(group);
+            [self copyAssetToFile:fileURI completionHandler:^(NSString * _Nullable tempFileUrl, NSError * _Nullable error) {
+                if (error) {
+                    dispatch_group_leave(group);
+                    RCTLogError(@"RN Uploader: Asset could not be copied to temp file.");
+                    [defaults removeObjectForKey:uploadId];
+                    [defaults setObject:[uploadIds subarrayWithRange:NSMakeRange(1, [uploadIds count] - 1)] forKey:@"backgroundUploads"];
+                    _activeUploads = NO;
+                    return [self dequeue];
+                }
+                fileURI = tempFileUrl;
                 dispatch_group_leave(group);
-                RCTLogError(@"RN Uploader: Asset could not be copied to temp file.");
+            }];
+            dispatch_group_wait(group, DISPATCH_TIME_FOREVER);
+        }
+
+        if([uploadType isEqualToString:@"multipart"] || [uploadType isEqualToString:@"raw"]) {
+            NSString *path = [[NSURL URLWithString:fileURI] path];
+            BOOL fileExists = [[NSFileManager defaultManager] fileExistsAtPath:path];
+            if(!fileExists) {
+                NSLog(@"RN Uploader: File does not exist %@.", path);
                 [defaults removeObjectForKey:uploadId];
                 [defaults setObject:[uploadIds subarrayWithRange:NSMakeRange(1, [uploadIds count] - 1)] forKey:@"backgroundUploads"];
                 _activeUploads = NO;
                 return [self dequeue];
             }
-            fileURI = tempFileUrl;
-            dispatch_group_leave(group);
-        }];
-        dispatch_group_wait(group, DISPATCH_TIME_FOREVER);
-    }
-
-    if([uploadType isEqualToString:@"multipart"] || [uploadType isEqualToString:@"raw"]) {
-        NSString *path = [[NSURL URLWithString:fileURI] path];
-        BOOL fileExists = [[NSFileManager defaultManager] fileExistsAtPath:path];
-        if(!fileExists) {
-            RCTLog(@"RN Uploader: File does not exist %@.", path);
-            [defaults removeObjectForKey:uploadId];
-            [defaults setObject:[uploadIds subarrayWithRange:NSMakeRange(1, [uploadIds count] - 1)] forKey:@"backgroundUploads"];
-            _activeUploads = NO;
-            return [self dequeue];
         }
-    }
-    
-    NSURLSessionDataTask *uploadTask;
-    
-    if ([uploadType isEqualToString:@"multipart"]) {
-        NSString *uuidStr = [[NSUUID UUID] UUIDString];
-        [request setValue:[NSString stringWithFormat:@"multipart/form-data; boundary=%@", uuidStr] forHTTPHeaderField:@"Content-Type"];
-        NSData *httpBody = [self createBodyWithBoundary:uuidStr path:fileURI parameters: parameters fieldName:fieldName];
-        [request setHTTPBody: httpBody];
-        // I am sorry about warning, but Upload tasks from NSData are not supported in background sessions.
-        uploadTask = [[self urlSession] uploadTaskWithRequest:request fromData: nil];
-    } else if ([uploadType isEqualToString:@"json"]) {
-        [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
-        NSData *httpBody = [VydiaRNFileUploader normalizedJSONRequestBody:parameters];
-        [request setHTTPBody:httpBody];
-        uploadTask = [[self urlSession] uploadTaskWithRequest:request fromData:nil];
-    } else {
-        if (parameters.count > 0) {
-            RCTLogError(@"RN Uploader: Parameters supported only in 'multipart' and 'json' type");
-            [defaults removeObjectForKey:uploadId];
-            [defaults setObject:[uploadIds subarrayWithRange:NSMakeRange(1, [uploadIds count] - 1)] forKey:@"backgroundUploads"];
-            _activeUploads = NO;
-            return [self dequeue];
+        
+        NSURLSessionDataTask *uploadTask;
+        
+        if ([uploadType isEqualToString:@"multipart"]) {
+            NSString *uuidStr = [[NSUUID UUID] UUIDString];
+            [request setValue:[NSString stringWithFormat:@"multipart/form-data; boundary=%@", uuidStr] forHTTPHeaderField:@"Content-Type"];
+            NSData *httpBody = [self createBodyWithBoundary:uuidStr path:fileURI parameters: parameters fieldName:fieldName];
+            [request setHTTPBody: httpBody];
+            // I am sorry about warning, but Upload tasks from NSData are not supported in background sessions.
+            uploadTask = [[self urlSession] uploadTaskWithRequest:request fromData: nil];
+        } else if ([uploadType isEqualToString:@"json"]) {
+            [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+            NSData *httpBody = [VydiaRNFileUploader normalizedJSONRequestBody:parameters];
+            [request setHTTPBody:httpBody];
+            uploadTask = [[self urlSession] uploadTaskWithRequest:request fromData:nil];
+        } else {
+            if (parameters.count > 0) {
+                RCTLogError(@"RN Uploader: Parameters supported only in 'multipart' and 'json' type");
+                [defaults removeObjectForKey:uploadId];
+                [defaults setObject:[uploadIds subarrayWithRange:NSMakeRange(1, [uploadIds count] - 1)] forKey:@"backgroundUploads"];
+                _activeUploads = NO;
+                return [self dequeue];
+            }
+            uploadTask = [[self urlSession] uploadTaskWithRequest:request fromFile:[NSURL URLWithString: fileURI]];
         }
-        uploadTask = [[self urlSession] uploadTaskWithRequest:request fromFile:[NSURL URLWithString: fileURI]];
+        
+        uploadTask.taskDescription = uploadId;
+        NSLog(@"Request: %@ | %@", requestUrl.absoluteString, uploadId);
+        [uploadTask resume];
     }
-    
-    uploadTask.taskDescription = uploadId;
-    NSLog(@"Request: %@ | %@", requestUrl.absoluteString, uploadId);
-    [uploadTask resume];
 }
 
 /*
@@ -359,6 +365,10 @@ RCT_EXPORT_METHOD(cancelUpload: (NSString *)cancelUploadId resolve:(RCTPromiseRe
 - (NSURLSession *)urlSession {
     if (_urlSession == nil) {
         NSURLSessionConfiguration *sessionConfiguration = [NSURLSessionConfiguration backgroundSessionConfigurationWithIdentifier:BACKGROUND_SESSION_ID];
+        //NSURLSessionConfiguration *sessionConfiguration = [NSURLSessionConfiguration defaultSessionConfiguration];
+        sessionConfiguration.networkServiceType = NSURLNetworkServiceTypeVideo;
+        sessionConfiguration.allowsCellularAccess = true;
+        //sessionConfiguration.timeoutIntervalForResource = 30.0;
         _urlSession = [NSURLSession sessionWithConfiguration:sessionConfiguration delegate:self delegateQueue:nil];
     }
     
@@ -383,6 +393,7 @@ didCompleteWithError:(NSError *)error {
         [_responsesData removeObjectForKey:@(task.taskIdentifier)];
         NSString *response = [[NSString alloc] initWithData:responseData encoding:NSUTF8StringEncoding];
         [data setObject:response forKey:@"responseBody"];
+        NSLog(@"Upload response for %@: %@", task.taskDescription, response);
     } else {
         [data setObject:[NSNull null] forKey:@"responseBody"];
     }
@@ -393,6 +404,7 @@ didCompleteWithError:(NSError *)error {
     }
     else
     {
+        NSLog(@"Upload error for %@: %@", task.taskDescription, error.localizedDescription);
         [data setObject:error.localizedDescription forKey:@"error"];
         if (error.code == NSURLErrorCancelled) {
             [self _sendEventWithName:@"RNFileUploader-cancelled" body:data];
@@ -431,6 +443,11 @@ totalBytesExpectedToSend:(int64_t)totalBytesExpectedToSend {
     } else {
         [responseData appendData:data];
     }
+}
+
+- (void)URLSession:(NSURLSession *)session didBecomeInvalidWithError:(NSError *)error {
+    NSLog(@"RN Uploader: didBecomeInvalidWithError: %@", error.localizedDescription);
+    RCTLogError(@"RN Uploader: didBecomeInvalidWithError: %@", error.localizedDescription);
 }
 
 @end
