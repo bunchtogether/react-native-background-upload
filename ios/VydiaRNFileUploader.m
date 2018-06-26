@@ -9,7 +9,9 @@
 {
     NSMutableDictionary *_responsesData;
     BOOL _activeUploads;
+    dispatch_queue_t _serialQueue;
 }
+
 @end
 
 extern NSString *const FILE_PREFIX = @"file://";
@@ -22,6 +24,20 @@ RCT_EXPORT_MODULE();
 static RCTEventEmitter* staticEventEmitter = nil;
 static NSString *BACKGROUND_SESSION_ID = @"ReactNativeBackgroundUpload";
 NSURLSession *_urlSession = nil;
+
+- (void) setActive:(BOOL)value {
+    dispatch_async(_serialQueue, ^{
+        _activeUploads = value;
+    });
+}
+
+- (BOOL) isActive {
+    __block BOOL result = NO;
+    dispatch_sync(_serialQueue, ^{
+        result = _activeUploads;
+    });
+    return result;
+}
 
 + (BOOL)requiresMainQueueSetup {
     return NO;
@@ -76,8 +92,9 @@ NSURLSession *_urlSession = nil;
     self = [super init];
     if (self) {
         staticEventEmitter = self;
+        _serialQueue = dispatch_queue_create("react-native-uploader-queue", DISPATCH_QUEUE_SERIAL);
         _responsesData = [NSMutableDictionary dictionary];
-        _activeUploads = NO;
+        [self setActive:NO];
         [self dequeue];
     }
     return self;
@@ -176,21 +193,24 @@ RCT_EXPORT_METHOD(getFileInfo:(NSString *)path resolve:(RCTPromiseResolveBlock)r
 }
 
 - (void)dequeue {
-    
-    if(_activeUploads) {
+    dispatch_async(dispatch_get_main_queue(), ^() {
+    if([self isActive]) {
         NSLog(@"Uploads currently active, skipping");
         return;
     }
     
-    NSLog(@"Dequeing");
-    _activeUploads = YES;
+    NSLog(@"Dequeing: thread %@", [NSThread currentThread]);
+    
+    [self setActive:YES];
+    
     NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
     NSArray *uploadIds = [defaults stringArrayForKey: @"backgroundUploads"];
     NSString *uploadId = [uploadIds firstObject];
+    
     if(uploadId == nil) {
         // Queue is empty
         NSLog(@"Queue is empty");
-        _activeUploads = NO;
+        [self setActive:NO];
         return;
     }
     
@@ -198,7 +218,7 @@ RCT_EXPORT_METHOD(getFileInfo:(NSString *)path resolve:(RCTPromiseResolveBlock)r
     if(options == nil) {
         // Options does not exist
         [defaults setObject:[uploadIds subarrayWithRange:NSMakeRange(1, [uploadIds count] - 1)] forKey:@"backgroundUploads"];
-        _activeUploads = NO;
+        [self setActive:NO];
         return [self dequeue];
     }
     
@@ -217,7 +237,7 @@ RCT_EXPORT_METHOD(getFileInfo:(NSString *)path resolve:(RCTPromiseResolveBlock)r
         RCTLogError(@"RN Uploader: Request cannot be nil.");
         [defaults removeObjectForKey:uploadId];
         [defaults setObject:[uploadIds subarrayWithRange:NSMakeRange(1, [uploadIds count] - 1)] forKey:@"backgroundUploads"];
-        _activeUploads = NO;
+        [self setActive:NO];
         return [self dequeue];
     }
     
@@ -244,7 +264,7 @@ RCT_EXPORT_METHOD(getFileInfo:(NSString *)path resolve:(RCTPromiseResolveBlock)r
                 RCTLogError(@"RN Uploader: Asset could not be copied to temp file.");
                 [defaults removeObjectForKey:uploadId];
                 [defaults setObject:[uploadIds subarrayWithRange:NSMakeRange(1, [uploadIds count] - 1)] forKey:@"backgroundUploads"];
-                _activeUploads = NO;
+                [self setActive:NO];
                 return [self dequeue];
             }
             fileURI = tempFileUrl;
@@ -260,7 +280,7 @@ RCT_EXPORT_METHOD(getFileInfo:(NSString *)path resolve:(RCTPromiseResolveBlock)r
             NSLog(@"RN Uploader: File does not exist %@.", path);
             [defaults removeObjectForKey:uploadId];
             [defaults setObject:[uploadIds subarrayWithRange:NSMakeRange(1, [uploadIds count] - 1)] forKey:@"backgroundUploads"];
-            _activeUploads = NO;
+            [self setActive:NO];
             return [self dequeue];
         }
     }
@@ -284,7 +304,7 @@ RCT_EXPORT_METHOD(getFileInfo:(NSString *)path resolve:(RCTPromiseResolveBlock)r
             RCTLogError(@"RN Uploader: Parameters supported only in 'multipart' and 'json' type");
             [defaults removeObjectForKey:uploadId];
             [defaults setObject:[uploadIds subarrayWithRange:NSMakeRange(1, [uploadIds count] - 1)] forKey:@"backgroundUploads"];
-            _activeUploads = NO;
+            [self setActive:NO];
             return [self dequeue];
         }
         uploadTask = [[self urlSession] uploadTaskWithRequest:request fromFile:[NSURL URLWithString: fileURI]];
@@ -293,6 +313,8 @@ RCT_EXPORT_METHOD(getFileInfo:(NSString *)path resolve:(RCTPromiseResolveBlock)r
     uploadTask.taskDescription = uploadId;
     NSLog(@"Request: %@ | %@ | Background: %@", requestUrl.absoluteString, uploadId, request.allowsCellularAccess ? @"YES" : @"NO");
     [uploadTask resume];
+    });
+    
 }
 
 /*
@@ -390,12 +412,11 @@ didCompleteWithError:(NSError *)error {
         NSURLSessionDataTask *uploadTask = (NSURLSessionDataTask *)task;
         NSHTTPURLResponse *response = (NSHTTPURLResponse *)uploadTask.response;
         
-        NSLog(@"didCompleteWithError: %@", task.taskDescription);
-        
         if (response != nil)
         {
             [data setObject:[NSNumber numberWithInteger:response.statusCode] forKey:@"responseCode"];
         }
+        
         //Add data that was collected earlier by the didReceiveData method
         NSMutableData *responseData = _responsesData[@(task.taskIdentifier)];
         if (responseData) {
@@ -425,8 +446,9 @@ didCompleteWithError:(NSError *)error {
         NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
         [defaults removeObjectForKey:task.taskDescription];
         
+        [self setActive:NO];
         
-        _activeUploads = NO;
+        NSLog(@"didCompleteWithError: %@", task.taskDescription);
         [self dequeue];
     });
     
@@ -462,6 +484,9 @@ totalBytesExpectedToSend:(int64_t)totalBytesExpectedToSend {
 }
 
 @end
+
+
+
 
 
 
