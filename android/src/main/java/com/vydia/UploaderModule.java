@@ -84,6 +84,8 @@ public class UploaderModule extends ReactContextBaseJavaModule {
     }
   }
 
+  private void jobCompleted()
+
   /*
    * Starts a file upload.
    * Returns a promise with the string ID of the upload.

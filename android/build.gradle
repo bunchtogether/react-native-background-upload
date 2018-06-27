@@ -45,4 +45,5 @@ dependencies {
     */
     compile 'com.facebook.react:react-native:+'
     compile 'net.gotev:uploadservice-okhttp:3.2.3'
+    compile 'com.birbit:android-priority-jobqueue:2.0.1'
 }
