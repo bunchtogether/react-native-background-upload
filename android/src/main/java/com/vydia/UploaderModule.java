@@ -90,7 +90,7 @@ public class UploaderModule extends ReactContextBaseJavaModule {
    */
   @ReactMethod
   public void startUpload(ReadableMap options, final Promise promise) {
-    for (String key : new String[]{"url", "path"}) {
+    for (String key : new String[]{"url"}) {
       if (!options.hasKey(key)) {
         promise.reject(new IllegalArgumentException("Missing '" + key + "' field."));
         return;
@@ -120,8 +120,8 @@ public class UploaderModule extends ReactContextBaseJavaModule {
         return;
       }
 
-      if (!requestType.equals("raw") && !requestType.equals("multipart")) {
-        promise.reject(new IllegalArgumentException("type should be string: raw or multipart."));
+      if (!requestType.equals("raw") && !requestType.equals("multipart") && !requestType.equals("json")) {
+        promise.reject(new IllegalArgumentException("type should be string: raw, multipart or json."));
         return;
       }
     }
@@ -134,7 +134,7 @@ public class UploaderModule extends ReactContextBaseJavaModule {
     }
 
     String url = options.getString("url");
-    String filePath = options.getString("path");
+    String filePath = options.hasKey("path") ? options.getString("path") : "";
     String method = options.hasKey("method") && options.getType("method") == ReadableType.String ? options.getString("method") : "POST";
 
     final String customUploadId = options.hasKey("customUploadId") && options.getType("method") == ReadableType.String ? options.getString("customUploadId") : null;
@@ -179,6 +179,11 @@ public class UploaderModule extends ReactContextBaseJavaModule {
       if (requestType.equals("raw")) {
         request = new BinaryUploadRequest(this.getReactApplicationContext(), customUploadId, url)
                 .setFileToUpload(filePath);
+      } else if (requestType.equals("json")) {
+        // Process JSON request here
+        request = new MultipartUploadRequest(this.getReactApplicationContext(), customUploadId, url)
+                .setMethod(method)
+                .addHeader("Content-Type", "application/json");
       } else {
         if (!options.hasKey("field")) {
           promise.reject(new IllegalArgumentException("field is required field for multipart type."));
