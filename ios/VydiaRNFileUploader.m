@@ -394,8 +394,8 @@ RCT_EXPORT_METHOD(cancelUpload: (NSString *)cancelUploadId resolve:(RCTPromiseRe
         config.discretionary = NO;
         config.requestCachePolicy = NSURLRequestReloadIgnoringLocalCacheData;
         config.URLCache = nil;
-        //config.HTTPCookieAcceptPolicy = NSHTTPCookieAcceptPolicyAlways;
-        //sessionConfiguration.timeoutIntervalForResource = 30.0;
+        config.HTTPCookieAcceptPolicy = NSHTTPCookieAcceptPolicyAlways;
+        config.timeoutIntervalForResource = 30.0;
         _urlSession = [NSURLSession sessionWithConfiguration:config delegate:self delegateQueue:nil];
         _urlSession.sessionDescription = BACKGROUND_SESSION_ID;
     }
