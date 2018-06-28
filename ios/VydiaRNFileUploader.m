@@ -10,6 +10,7 @@
     NSMutableDictionary *_responsesData;
     BOOL _activeUploads;
     dispatch_queue_t _serialQueue;
+    NSMutableDictionary *_tasks;
 }
 
 @end
@@ -94,6 +95,7 @@ NSURLSession *_urlSession = nil;
         staticEventEmitter = self;
         _serialQueue = dispatch_queue_create("react-native-uploader-queue", DISPATCH_QUEUE_SERIAL);
         _responsesData = [NSMutableDictionary dictionary];
+        _tasks = [[NSMutableDictionary alloc] init];
         [self setActive:NO];
         [self dequeue];
     }
@@ -193,7 +195,7 @@ RCT_EXPORT_METHOD(getFileInfo:(NSString *)path resolve:(RCTPromiseResolveBlock)r
 }
 
 - (void)dequeue {
-    dispatch_async(dispatch_get_main_queue(), ^() {
+    
     if([self isActive]) {
         NSLog(@"Uploads currently active, skipping");
         return;
@@ -211,6 +213,12 @@ RCT_EXPORT_METHOD(getFileInfo:(NSString *)path resolve:(RCTPromiseResolveBlock)r
         // Queue is empty
         NSLog(@"Queue is empty");
         [self setActive:NO];
+        return;
+    }
+    
+    NSURLSessionDataTask *existingTask = [_tasks objectForKey:uploadId];
+    if(existingTask) {
+        NSLog(@"RN Uploader: Task already exists %@.", uploadId);
         return;
     }
     
@@ -309,11 +317,10 @@ RCT_EXPORT_METHOD(getFileInfo:(NSString *)path resolve:(RCTPromiseResolveBlock)r
         }
         uploadTask = [[self urlSession] uploadTaskWithRequest:request fromFile:[NSURL URLWithString: fileURI]];
     }
-    
+    _tasks[uploadId] = uploadTask;
     uploadTask.taskDescription = uploadId;
-    NSLog(@"Request: %@ | %@ | Background: %@", requestUrl.absoluteString, uploadId, request.allowsCellularAccess ? @"YES" : @"NO");
+    NSLog(@"Request: %@ | %@", requestUrl.absoluteString, uploadId);
     [uploadTask resume];
-    });
     
 }
 
@@ -407,6 +414,7 @@ RCT_EXPORT_METHOD(cancelUpload: (NSString *)cancelUploadId resolve:(RCTPromiseRe
 - (void)URLSession:(NSURLSession *)session
               task:(NSURLSessionTask *)task
 didCompleteWithError:(NSError *)error {
+    
     dispatch_async(dispatch_get_main_queue(), ^() {
         NSMutableDictionary *data = [NSMutableDictionary dictionaryWithObjectsAndKeys:task.taskDescription, @"id", nil];
         NSURLSessionDataTask *uploadTask = (NSURLSessionDataTask *)task;
@@ -446,6 +454,7 @@ didCompleteWithError:(NSError *)error {
         NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
         [defaults removeObjectForKey:task.taskDescription];
         
+        [_tasks removeObjectForKey:task.taskDescription];
         [self setActive:NO];
         
         NSLog(@"didCompleteWithError: %@", task.taskDescription);
@@ -484,6 +493,8 @@ totalBytesExpectedToSend:(int64_t)totalBytesExpectedToSend {
 }
 
 @end
+
+
 
 
 
