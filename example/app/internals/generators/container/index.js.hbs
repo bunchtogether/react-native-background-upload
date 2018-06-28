@@ -1,0 +1,41 @@
+// @flow
+
+import * as React from 'react';
+import { connect } from 'react-redux';
+import { bindActionCreators } from 'redux';
+import { View, Text } from 'react-native';
+import type { StateType } from '../../types';
+{{#if wantActionsAndReducer}}
+import * as actionCreators from './actions';
+import * as selectors from './selectors';
+{{/if}}
+
+type Props = {};
+
+type State = {};
+
+export class {{ properCase name }} extends React.{{{ component }}}<Props, State> { // eslint-disable-line react/prefer-stateless-function
+
+  static navigationOptions = {
+    title: '{{ properCase name }}',
+  };
+
+  render() {
+    return (
+      <View>
+        <Text>{{ properCase name }}</Text>
+      </View>
+    );
+  }
+}
+
+{{#if wantActionsAndReducer}}
+export default connect(
+  (state: StateType): Object => ({
+    state: selectors.selector(state)
+  }),
+  (dispatch: Function): Object => bindActionCreators(actionCreators, dispatch)
+)({{ properCase name }});
+{{else}}
+export default {{ properCase name }};
+{{/if}}

@@ -1,0 +1,13 @@
+{
+    "presets": ["react-native"],
+    "plugins": [[
+      "module-alias", [
+          { "src": "./app/vendor/shared-redux", "expose": "shared-redux" }
+      ]
+    ]],
+    "env": {
+        "test": {
+            "plugins": ["istanbul"]
+        }
+    }
+}

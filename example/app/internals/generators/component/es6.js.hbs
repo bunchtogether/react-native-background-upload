@@ -1,0 +1,26 @@
+// @flow
+
+import * as React from 'react';
+import { connect } from 'react-redux';
+import { View } from 'react-native';
+import type { StateType } from '../../types';
+
+type Props = {};
+
+type State = {};
+
+export class {{ properCase name }} extends React.Component<Props, State> { // eslint-disable-line react/prefer-stateless-function
+
+  render() {
+    return (
+      <View>
+      </View>
+    );
+  }
+}
+
+export default connect(
+  (state: StateType): Object => ({
+    state
+  })
+)({{ properCase name }});

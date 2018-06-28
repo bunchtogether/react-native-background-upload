@@ -29,8 +29,8 @@ import net.gotev.uploadservice.okhttp.OkHttpStack;
 
 import java.io.File;
 
-import com.vydia.RNUploader.UploaderQueue;
-import com.birbit.android.jobqueue.JobManager;
+// import com.vydia.RNUploader.UploaderQueue;
+// import com.birbit.android.jobqueue.JobManager;
 
 
 
@@ -39,15 +39,15 @@ import com.birbit.android.jobqueue.JobManager;
  */
 public class UploaderModule extends ReactContextBaseJavaModule {
   private static final String TAG = "UploaderBridge";
-  private UploaderQueue queueManager;
-  private JobManager queue;
+  // private UploaderQueue queueManager;
+  // private JobManager queue;
 
   public UploaderModule(ReactApplicationContext reactContext) {
     super(reactContext);
     UploadService.NAMESPACE = reactContext.getApplicationInfo().packageName;
     UploadService.HTTP_STACK = new OkHttpStack();
-    queueManager = new queueManager();
-    queue = queueManager.getQueue();
+    // queueManager = new queueManager();
+    // queue = queueManager.getQueue();
   }
 
   @Override
@@ -93,7 +93,7 @@ public class UploaderModule extends ReactContextBaseJavaModule {
     }
   }
 
-  private void jobCompleted()
+  // private void jobCompleted()
 
   /*
    * Starts a file upload.
