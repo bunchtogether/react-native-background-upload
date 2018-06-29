@@ -5,6 +5,8 @@ import android.support.annotation.Nullable;
 import android.util.Log;
 import android.webkit.MimeTypeMap;
 
+import com.birbit.android.jobqueue.config.Configuration;
+import com.birbit.android.jobqueue.log.CustomLogger;
 import com.facebook.react.bridge.Arguments;
 import com.facebook.react.bridge.Promise;
 import com.facebook.react.bridge.ReactApplicationContext;
@@ -29,8 +31,21 @@ import net.gotev.uploadservice.okhttp.OkHttpStack;
 
 import java.io.File;
 
-// import com.vydia.RNUploader.UploaderQueue;
-// import com.birbit.android.jobqueue.JobManager;
+import com.birbit.android.jobqueue.JobManager;
+import com.birbit.android.jobqueue.scheduling.FrameworkJobSchedulerService;
+import com.birbit.android.jobqueue.JobManager;
+import com.birbit.android.jobqueue.config.Configuration;
+import com.birbit.android.jobqueue.log.CustomLogger;
+import com.birbit.android.jobqueue.scheduling.GcmJobSchedulerService;
+//import com.google.android.gms.common.ConnectionResult;
+//import com.google.android.gms.common.GoogleApiAvailability;
+//import com.birbit.android.jobqueue.persistentQueue.sqlite;
+
+import com.birbit.android.jobqueue.CancelReason;
+import com.birbit.android.jobqueue.Job;
+import com.birbit.android.jobqueue.Params;
+import com.birbit.android.jobqueue.RetryConstraint;
+
 
 
 
@@ -39,15 +54,13 @@ import java.io.File;
  */
 public class UploaderModule extends ReactContextBaseJavaModule {
   private static final String TAG = "UploaderBridge";
-  // private UploaderQueue queueManager;
-  // private JobManager queue;
+  private JobManager queue;
 
   public UploaderModule(ReactApplicationContext reactContext) {
     super(reactContext);
     UploadService.NAMESPACE = reactContext.getApplicationInfo().packageName;
     UploadService.HTTP_STACK = new OkHttpStack();
-    // queueManager = new queueManager();
-    // queue = queueManager.getQueue();
+    queue = getQueue();
   }
 
   @Override
@@ -91,6 +104,45 @@ public class UploaderModule extends ReactContextBaseJavaModule {
       Log.e(TAG, exc.getMessage(), exc);
       promise.reject(exc);
     }
+  }
+
+  public class ProcessJob extends Job {
+    private long localId;
+    public static final int PRIORITY = 1;
+    private HttpUploadRequest request;
+    public ProcessJob(HttpUploadRequest request) {
+      // This job requires network connectivity,
+      // and should be persisted in case the application exits before job is completed.
+      super(new Params(PRIORITY).requireNetwork().persist());
+      localId = -System.currentTimeMillis();
+      this.request = request;
+    }
+    @Override
+    public void onAdded() {
+      // Job has been saved to disk.
+      // This is a good place to dispatch a UI event to indicate the job will eventually run.
+      // In this example, it would be good to update the UI with the newly posted tweet.
+    }
+    @Override
+    public void onRun() throws Throwable {
+      // Job logic goes here. In this example, the network call to post to Twitter is done here.
+      // All work done here should be synchronous, a job is removed from the queue once 
+      // onRun() finishes.
+      request.startUpload();
+    }
+    @Override
+    protected RetryConstraint shouldReRunOnThrowable(Throwable throwable, int runCount,
+            int maxRunCount) {
+        // An error occurred in onRun.
+        // Return value determines whether this job should retry or cancel. You can further
+        // specify a backoff strategy or change the job's priority. You can also apply the
+        // delay to the whole group to preserve jobs' running order.
+        return RetryConstraint.createExponentialBackoff(runCount, 1000);
+    }
+    @Override
+    protected void onCancel(@CancelReason int cancelReason, @Nullable Throwable throwable) {
+        // Job has exceeded retry attempts or shouldReRunOnThrowable() has decided to cancel.
+    } 
   }
 
   // private void jobCompleted()
@@ -252,9 +304,10 @@ public class UploaderModule extends ReactContextBaseJavaModule {
           request.addHeader(key, headers.getString(key));
         }
       }
-
-      String uploadId = request.startUpload();
-      promise.resolve(uploadId);
+      queue.addJobInBackground(new ProcessJob(request));
+      // String uploadId = request.startUpload();
+      // promise.resolve(uploadId);
+      promise.resolve("uploadId");
     } catch (Exception exc) {
       Log.e(TAG, exc.getMessage(), exc);
       promise.reject(exc);
@@ -279,6 +332,65 @@ public class UploaderModule extends ReactContextBaseJavaModule {
       Log.e(TAG, exc.getMessage(), exc);
       promise.reject(exc);
     }
+  }
+
+  private void configureQueue() {
+    Configuration.Builder builder = new Configuration.Builder(this.getReactApplicationContext())
+            .customLogger(new CustomLogger() {
+              private static final String TAG = "Queue";
+              @Override
+              public boolean isDebugEnabled() {
+                return true;
+              }
+
+              @Override
+              public void d(String text, Object... args) {
+                Log.d(TAG, String.format(text, args));
+              }
+
+              @Override
+              public void e(Throwable t, String text, Object... args) {
+                Log.e(TAG, String.format(text, args), t);
+              }
+
+              @Override
+              public void e(String text, Object... args) {
+                Log.e(TAG, String.format(text, args));
+              }
+
+              @Override
+              public void v(String text, Object... args) {
+
+              }
+            })
+            .minConsumerCount(1)//always keep at least one consumer alive
+            .maxConsumerCount(1)//up to 1 consumers at a time
+            .loadFactor(1)//1 jobs per consumer
+            .consumerKeepAlive(300);//wait 5 minute
+
+    // Use http://yigit.github.io/android-priority-jobqueue/javadoc/com/birbit/android/jobqueue/config/Configuration.Builder.html#queueFactory(com.birbit.android.jobqueue.QueueFactory)
+
+    // Use SqliteJobQueue.JobSerializer for job presistance
+
+    // Service
+    // if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+    //     builder.scheduler(FrameworkJobSchedulerService.createSchedulerFor(this,
+    //             MyJobService.class), true);
+    // } else {
+    //     int enableGcm = GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(this);
+    //     if (enableGcm == ConnectionResult.SUCCESS) {
+    //         builder.scheduler(GcmJobSchedulerService.createSchedulerFor(this,
+    //                 MyGcmJobService.class), true);
+    //     }
+    // }
+    queue = new JobManager(builder.build());
+  }
+
+  public synchronized JobManager getQueue() {
+    if (queue == null) {
+      configureQueue();
+    }
+    return queue;
   }
 
 }

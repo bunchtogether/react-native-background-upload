@@ -33,6 +33,7 @@ android {
 
 repositories {
     mavenCentral()
+    jcenter()
 }
 dependencies {
     /**
