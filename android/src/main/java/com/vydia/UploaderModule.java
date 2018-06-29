@@ -38,15 +38,13 @@ import com.birbit.android.jobqueue.config.Configuration;
 import com.birbit.android.jobqueue.log.CustomLogger;
 import com.birbit.android.jobqueue.scheduling.GcmJobSchedulerService;
 //import com.google.android.gms.common.ConnectionResult;
-//import com.google.android.gms.common.GoogleApiAvailability;
-//import com.birbit.android.jobqueue.persistentQueue.sqlite;
+// import com.google.android.gms.common.GoogleApiAvailability;
+// import com.birbit.android.jobqueue.persistentQueue.sqlite;
 
 import com.birbit.android.jobqueue.CancelReason;
 import com.birbit.android.jobqueue.Job;
 import com.birbit.android.jobqueue.Params;
 import com.birbit.android.jobqueue.RetryConstraint;
-
-
 
 
 /**
@@ -106,19 +104,26 @@ public class UploaderModule extends ReactContextBaseJavaModule {
     }
   }
 
+
   public class ProcessJob extends Job {
     private long localId;
     public static final int PRIORITY = 1;
-    private HttpUploadRequest request;
-    public ProcessJob(HttpUploadRequest request) {
+    private transient ReadableMap options;
+    private transient Promise promise;
+    public ProcessJob(ReadableMap options, final Promise promise) {
       // This job requires network connectivity,
       // and should be persisted in case the application exits before job is completed.
-      super(new Params(PRIORITY).requireNetwork().persist());
+
+      // Disabled jobPresistance here
+      // super(new Params(PRIORITY).requireNetwork().persist());
+      super(new Params(PRIORITY).requireNetwork());
       localId = -System.currentTimeMillis();
-      this.request = request;
+      this.options = options;
+      this.promise = promise;
     }
     @Override
     public void onAdded() {
+      Log.d(TAG, String.format("%s : %s", options.getString("url"), options.getMap("parameters").getString("id")));
       // Job has been saved to disk.
       // This is a good place to dispatch a UI event to indicate the job will eventually run.
       // In this example, it would be good to update the UI with the newly posted tweet.
@@ -128,7 +133,8 @@ public class UploaderModule extends ReactContextBaseJavaModule {
       // Job logic goes here. In this example, the network call to post to Twitter is done here.
       // All work done here should be synchronous, a job is removed from the queue once 
       // onRun() finishes.
-      request.startUpload();
+      Log.d(TAG, "RUNNING JOB");
+      startUploadJob(options, promise);
     }
     @Override
     protected RetryConstraint shouldReRunOnThrowable(Throwable throwable, int runCount,
@@ -145,14 +151,21 @@ public class UploaderModule extends ReactContextBaseJavaModule {
     } 
   }
 
-  // private void jobCompleted()
+
+ 
 
   /*
    * Starts a file upload.
    * Returns a promise with the string ID of the upload.
    */
+
   @ReactMethod
   public void startUpload(ReadableMap options, final Promise promise) {
+    queue.addJobInBackground(new ProcessJob(options, promise));
+  }
+
+  @ReactMethod
+  public void startUploadJob(ReadableMap options, final Promise promise) {
     for (String key : new String[]{"url"}) {
       if (!options.hasKey(key)) {
         promise.reject(new IllegalArgumentException("Missing '" + key + "' field."));
@@ -304,10 +317,8 @@ public class UploaderModule extends ReactContextBaseJavaModule {
           request.addHeader(key, headers.getString(key));
         }
       }
-      queue.addJobInBackground(new ProcessJob(request));
-      // String uploadId = request.startUpload();
-      // promise.resolve(uploadId);
-      promise.resolve("uploadId");
+      String uploadId = request.startUpload();
+      promise.resolve(uploadId);
     } catch (Exception exc) {
       Log.e(TAG, exc.getMessage(), exc);
       promise.reject(exc);
