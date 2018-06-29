@@ -317,6 +317,7 @@ RCT_EXPORT_METHOD(getFileInfo:(NSString *)path resolve:(RCTPromiseResolveBlock)r
         }
         uploadTask = [[self urlSession] uploadTaskWithRequest:request fromFile:[NSURL URLWithString: fileURI]];
     }
+    
     _tasks[uploadId] = uploadTask;
     uploadTask.taskDescription = uploadId;
     NSLog(@"Request: %@ | %@", requestUrl.absoluteString, uploadId);
@@ -394,8 +395,11 @@ RCT_EXPORT_METHOD(cancelUpload: (NSString *)cancelUploadId resolve:(RCTPromiseRe
 
 - (NSURLSession *)urlSession {
     if (_urlSession == nil) {
-        NSURLSessionConfiguration *config = [NSURLSessionConfiguration backgroundSessionConfigurationWithIdentifier:BACKGROUND_SESSION_ID];
-        //NSURLSessionConfiguration *config = [NSURLSessionConfiguration defaultSessionConfiguration];
+        #if (TARGET_IPHONE_SIMULATOR)
+            NSURLSessionConfiguration *config = [NSURLSessionConfiguration defaultSessionConfiguration];
+        #else
+            NSURLSessionConfiguration *config = [NSURLSessionConfiguration backgroundSessionConfigurationWithIdentifier:BACKGROUND_SESSION_ID];
+        #endif
         config.allowsCellularAccess = YES;
         config.sessionSendsLaunchEvents = YES;
         config.discretionary = NO;
