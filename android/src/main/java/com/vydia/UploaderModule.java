@@ -53,6 +53,7 @@ import com.birbit.android.jobqueue.RetryConstraint;
 public class UploaderModule extends ReactContextBaseJavaModule {
   private static final String TAG = "UploaderBridge";
   private JobManager queue;
+  private boolean jobInProgress;
 
   public UploaderModule(ReactApplicationContext reactContext) {
     super(reactContext);
@@ -123,7 +124,7 @@ public class UploaderModule extends ReactContextBaseJavaModule {
     }
     @Override
     public void onAdded() {
-      Log.d(TAG, String.format("%s : %s", options.getString("url"), options.getMap("parameters").getString("id")));
+      Log.d(TAG, String.format("ADDED JOB %s : %s", options.getString("url"), options.getMap("parameters").getString("id")));
       // Job has been saved to disk.
       // This is a good place to dispatch a UI event to indicate the job will eventually run.
       // In this example, it would be good to update the UI with the newly posted tweet.
@@ -133,8 +134,12 @@ public class UploaderModule extends ReactContextBaseJavaModule {
       // Job logic goes here. In this example, the network call to post to Twitter is done here.
       // All work done here should be synchronous, a job is removed from the queue once 
       // onRun() finishes.
-      Log.d(TAG, "RUNNING JOB");
+      Log.d(TAG, String.format("STARTED JOB %s : %s", options.getString("url"), options.getMap("parameters").getString("id")));
       startUploadJob(options, promise);
+      jobInProgress = true;
+      while (jobInProgress) {
+        Log.d(TAG, String.format("JOB IN PROGRESS %s : %s", options.getString("url"), options.getMap("parameters").getString("id")));
+      }
     }
     @Override
     protected RetryConstraint shouldReRunOnThrowable(Throwable throwable, int runCount,
@@ -240,6 +245,7 @@ public class UploaderModule extends ReactContextBaseJavaModule {
           params.putInt("responseCode", serverResponse.getHttpCode());
           params.putString("responseBody", serverResponse.getBodyAsString());
           sendEvent("completed", params);
+          jobInProgress = false;
         }
 
         @Override
@@ -247,6 +253,7 @@ public class UploaderModule extends ReactContextBaseJavaModule {
           WritableMap params = Arguments.createMap();
           params.putString("id", customUploadId != null ? customUploadId : uploadInfo.getUploadId());
           sendEvent("cancelled", params);
+          jobInProgress = false;
         }
       };
 
@@ -377,7 +384,7 @@ public class UploaderModule extends ReactContextBaseJavaModule {
             .minConsumerCount(1)//always keep at least one consumer alive
             .maxConsumerCount(1)//up to 1 consumers at a time
             .loadFactor(1)//1 jobs per consumer
-            .consumerKeepAlive(300);//wait 5 minute
+            .consumerKeepAlive(60);//wait 60 minute
 
     // Use http://yigit.github.io/android-priority-jobqueue/javadoc/com/birbit/android/jobqueue/config/Configuration.Builder.html#queueFactory(com.birbit.android.jobqueue.QueueFactory)
 
