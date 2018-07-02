@@ -22,6 +22,7 @@ import com.facebook.react.modules.core.DeviceEventManagerModule;
 import net.gotev.uploadservice.BinaryUploadRequest;
 import net.gotev.uploadservice.HttpUploadRequest;
 import net.gotev.uploadservice.MultipartUploadRequest;
+import net.gotev.uploadservice.HttpJsonRequest;
 import net.gotev.uploadservice.ServerResponse;
 import net.gotev.uploadservice.UploadInfo;
 import net.gotev.uploadservice.UploadNotificationConfig;
@@ -264,7 +265,7 @@ public class UploaderModule extends ReactContextBaseJavaModule {
                 .setFileToUpload(filePath);
       } else if (requestType.equals("json")) {
         // Process JSON request here
-        request = new MultipartUploadRequest(this.getReactApplicationContext(), customUploadId, url)
+        request = new HttpJsonRequest(this.getReactApplicationContext(), customUploadId, url)
                 .setMethod(method)
                 .addHeader("Content-Type", "application/json");
       } else {
