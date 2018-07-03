@@ -11,6 +11,7 @@
     BOOL _activeUploads;
     dispatch_queue_t _serialQueue;
     NSMutableDictionary *_tasks;
+    long _lastDequeue;
 }
 
 @end
@@ -96,6 +97,7 @@ NSURLSession *_urlSession = nil;
         _serialQueue = dispatch_queue_create("react-native-uploader-queue", DISPATCH_QUEUE_SERIAL);
         _responsesData = [NSMutableDictionary dictionary];
         _tasks = [[NSMutableDictionary alloc] init];
+        _lastDequeue = (long)[[NSDate date] timeIntervalSince1970];
         [self setActive:NO];
         [self dequeue];
     }
@@ -196,10 +198,14 @@ RCT_EXPORT_METHOD(getFileInfo:(NSString *)path resolve:(RCTPromiseResolveBlock)r
 
 - (void)dequeue {
     
-    if([self isActive]) {
+    long now = (long)[[NSDate date] timeIntervalSince1970];
+    
+    if([self isActive] && now - _lastDequeue > 10) {
         NSLog(@"Uploads currently active, skipping");
         return;
     }
+    
+    _lastDequeue = now;
     
     NSLog(@"Dequeing: thread %@", [NSThread currentThread]);
     
