@@ -31,6 +31,15 @@ import net.gotev.uploadservice.UploadStatusDelegate;
 import net.gotev.uploadservice.okhttp.OkHttpStack;
 
 import java.io.File;
+import java.lang.Object;
+import java.io.IOException;
+import java.lang.ClassNotFoundException;
+import java.io.ByteArrayOutputStream;
+import java.io.ObjectOutputStream;
+import java.io.ObjectInputStream;
+import java.io.ByteArrayInputStream;
+import java.util.UUID;
+
 
 import com.birbit.android.jobqueue.JobManager;
 import com.birbit.android.jobqueue.scheduling.FrameworkJobSchedulerService;
@@ -48,9 +57,7 @@ import com.birbit.android.jobqueue.Params;
 import com.birbit.android.jobqueue.RetryConstraint;
 
 
-/**
- * Created by stephen on 12/8/16.
- */
+
 public class UploaderModule extends ReactContextBaseJavaModule {
   private static final String TAG = "UploaderBridge";
   private JobManager queue;
@@ -106,13 +113,11 @@ public class UploaderModule extends ReactContextBaseJavaModule {
     }
   }
 
-
   public class ProcessJob extends Job {
     private long localId;
     public static final int PRIORITY = 1;
-    private transient ReadableMap options;
-    private transient Promise promise;
-    public ProcessJob(ReadableMap options, final Promise promise) {
+    private transient WritableMap options;
+    public ProcessJob(WritableMap options) {
       // This job requires network connectivity,
       // and should be persisted in case the application exits before job is completed.
 
@@ -121,7 +126,6 @@ public class UploaderModule extends ReactContextBaseJavaModule {
       super(new Params(PRIORITY).requireNetwork());
       localId = -System.currentTimeMillis();
       this.options = options;
-      this.promise = promise;
     }
     @Override
     public void onAdded() {
@@ -136,7 +140,8 @@ public class UploaderModule extends ReactContextBaseJavaModule {
       // All work done here should be synchronous, a job is removed from the queue once 
       // onRun() finishes.
       Log.d(TAG, String.format("STARTED JOB %s : %s", options.getString("url"), options.getMap("parameters").getString("id")));
-      startUploadJob(options, promise);
+      Log.d(TAG, String.format("SAVED JOB %s", options.toString()));
+      startUploadJob(options);
       jobInProgress = true;
       while (jobInProgress) {
         Log.d(TAG, String.format("JOB IN PROGRESS %s : %s", options.getString("url"), options.getMap("parameters").getString("id")));
@@ -163,15 +168,12 @@ public class UploaderModule extends ReactContextBaseJavaModule {
   /*
    * Starts a file upload.
    * Returns a promise with the string ID of the upload.
+   *
+   * Type check parameters and resolve or reject the promise 
+   * Add options to the background queue
    */
-
   @ReactMethod
   public void startUpload(ReadableMap options, final Promise promise) {
-    queue.addJobInBackground(new ProcessJob(options, promise));
-  }
-
-  @ReactMethod
-  public void startUploadJob(ReadableMap options, final Promise promise) {
     for (String key : new String[]{"url"}) {
       if (!options.hasKey(key)) {
         promise.reject(new IllegalArgumentException("Missing '" + key + "' field."));
@@ -193,8 +195,8 @@ public class UploaderModule extends ReactContextBaseJavaModule {
       return;
     }
 
+    // Supported types are raw, json, multipart
     String requestType = "raw";
-
     if (options.hasKey("type")) {
       requestType = options.getString("type");
       if (requestType == null) {
@@ -206,7 +208,75 @@ public class UploaderModule extends ReactContextBaseJavaModule {
         promise.reject(new IllegalArgumentException("type should be string: raw, multipart or json."));
         return;
       }
+
+      // If type if multipart, it should have field
+      if (requestType.equals("multipart")) {
+        if (!options.hasKey("field")) {
+          promise.reject(new IllegalArgumentException("field is required field for multipart type."));
+          return;
+        }
+        if (options.getType("field") != ReadableType.String) {
+          promise.reject(new IllegalArgumentException("field must be string."));
+          return;
+        }
+      }
     }
+
+    // Validate parameters
+    if (options.hasKey("parameters")) {
+      requestType = options.getString("type");
+      if (requestType.equals("raw")) {
+        promise.reject(new IllegalArgumentException("Parameters supported only in multipart type"));
+        return;
+      }
+
+      ReadableMap parameters = options.getMap("parameters");
+      ReadableMapKeySetIterator keys = parameters.keySetIterator();
+      
+      while (keys.hasNextKey()) {
+        String key = keys.nextKey();
+        if (parameters.getType(key) != ReadableType.String) {
+          promise.reject(new IllegalArgumentException("Parameters must be string key/values. Value was invalid for '" + key + "'"));
+          return;
+        }
+      }
+    }
+
+    // Validate headers
+    if (options.hasKey("headers")) {
+      ReadableMap headers = options.getMap("headers");
+      ReadableMapKeySetIterator keys = headers.keySetIterator();
+      while (keys.hasNextKey()) {
+        String key = keys.nextKey();
+        if (headers.getType(key) != ReadableType.String) {
+          promise.reject(new IllegalArgumentException("Headers must be string key/values.  Value was invalid for '" + key + "'"));
+          return;
+        }
+      }
+    }
+
+    // Fetch the uploadId
+
+    String uploadId = "";
+    WritableMap jobOptions = Arguments.createMap();
+    jobOptions.merge(options);
+    if (!jobOptions.hasKey("customUploadId") || (jobOptions.hasKey("customUploadId") && options.getType("customUploadId") != ReadableType.String)) {
+      UUID uuid = UUID.randomUUID();
+      uploadId = uuid.toString();
+      jobOptions.putString("customUploadId", uploadId);
+    } else {
+      uploadId = options.getString("customUploadId");
+    }
+
+    // Add request to Queue
+    queue.addJobInBackground(new ProcessJob(jobOptions));
+
+    // Resolve uploadId
+    promise.resolve(uploadId);
+  }
+
+  // Trigger the request
+  public void startUploadJob(WritableMap options) {
 
     WritableMap notification = new WritableNativeMap();
     notification.putBoolean("enabled", true);
@@ -259,6 +329,10 @@ public class UploaderModule extends ReactContextBaseJavaModule {
       };
 
       HttpUploadRequest<?> request;
+      String requestType = "raw";
+      if (options.hasKey("type")) {
+        requestType = options.getString("type");
+      }
 
       if (requestType.equals("raw")) {
         request = new BinaryUploadRequest(this.getReactApplicationContext(), customUploadId, url)
@@ -269,16 +343,6 @@ public class UploaderModule extends ReactContextBaseJavaModule {
                 .setMethod(method)
                 .addHeader("Content-Type", "application/json");
       } else {
-        if (!options.hasKey("field")) {
-          promise.reject(new IllegalArgumentException("field is required field for multipart type."));
-          return;
-        }
-
-        if (options.getType("field") != ReadableType.String) {
-          promise.reject(new IllegalArgumentException("field must be string."));
-          return;
-        }
-
         request = new MultipartUploadRequest(this.getReactApplicationContext(), customUploadId, url)
                 .addFileToUpload(filePath, options.getString("field"));
       }
@@ -293,22 +357,12 @@ public class UploaderModule extends ReactContextBaseJavaModule {
       }
 
       if (options.hasKey("parameters")) {
-        if (requestType.equals("raw")) {
-          promise.reject(new IllegalArgumentException("Parameters supported only in multipart type"));
-          return;
-        }
 
         ReadableMap parameters = options.getMap("parameters");
         ReadableMapKeySetIterator keys = parameters.keySetIterator();
 
         while (keys.hasNextKey()) {
           String key = keys.nextKey();
-
-          if (parameters.getType(key) != ReadableType.String) {
-            promise.reject(new IllegalArgumentException("Parameters must be string key/values. Value was invalid for '" + key + "'"));
-            return;
-          }
-
           request.addParameter(key, parameters.getString(key));
         }
       }
@@ -318,18 +372,16 @@ public class UploaderModule extends ReactContextBaseJavaModule {
         ReadableMapKeySetIterator keys = headers.keySetIterator();
         while (keys.hasNextKey()) {
           String key = keys.nextKey();
-          if (headers.getType(key) != ReadableType.String) {
-            promise.reject(new IllegalArgumentException("Headers must be string key/values.  Value was invalid for '" + key + "'"));
-            return;
-          }
           request.addHeader(key, headers.getString(key));
         }
       }
+      // String uploadId = request.startUpload();
+      // promise.resolve(uploadId);
       String uploadId = request.startUpload();
-      promise.resolve(uploadId);
+      Log.d(TAG, String.format("FINISHED JOB %s", uploadId));
     } catch (Exception exc) {
       Log.e(TAG, exc.getMessage(), exc);
-      promise.reject(exc);
+      // promise.reject(exc);
     }
   }
 
@@ -353,7 +405,64 @@ public class UploaderModule extends ReactContextBaseJavaModule {
     }
   }
 
+  // Docs
+  //http://yigit.github.io/android-priority-jobqueue/javadoc/com/birbit/android/jobqueue/persistentQueue/sqlite/SqliteJobQueue.JobSerializer.html
+  // https://github.com/yigit/android-priority-jobqueue/blob/58fc9dfc63f1358b32b26a262a81e2b98e6441ae/jobqueue/src/main/java/com/birbit/android/jobqueue/persistentQueue/sqlite/SqliteJobQueue.java
+  // public static class CustomSerializer implements JobSerializer {
+  //   public byte[] serialize(Object job) {
+  //     ByteArrayOutputStream out = new ByteArrayOutputStream();
+  //     ObjectOutputStream os = new ObjectOutputStream(out);
+  //     os.writeObject(job);
+  //     return out.toByteArray();
+  //   }
+  //   public <JobInstance extends Job> JobInstance deserialize(byte[] data) {
+  //     ByteArrayInputStream in = new ByteArrayInputStream(data);
+  //     ObjectInputStream is = new ObjectInputStream(in);
+  //     return is.readObject();
+  //   }
+  // }
+
+  // Default Serializer
+  // public static class JavaSerializer implements JobSerializer {
+
+  //   public byte[] serialize(Object object) throws IOException {
+  //       if (object == null) {
+  //           return null;
+  //       }
+  //       ByteArrayOutputStream bos = null;
+  //       try {
+  //           bos = new ByteArrayOutputStream();
+  //           ObjectOutput out = new ObjectOutputStream(bos);
+  //           out.writeObject(object);
+  //           // Get the bytes of the serialized object
+  //           return bos.toByteArray();
+  //       } finally {
+  //           if (bos != null) {
+  //               bos.close();
+  //           }
+  //       }
+  //   }
+
+  //   @Override
+  //   public <T extends Job> T deserialize(byte[] bytes) throws IOException, ClassNotFoundException {
+  //       if (bytes == null || bytes.length == 0) {
+  //           return null;
+  //       }
+  //       ObjectInputStream in = null;
+  //       try {
+  //           in = new ObjectInputStream(new ByteArrayInputStream(bytes));
+  //           //noinspection unchecked
+  //           return (T) in.readObject();
+  //       } finally {
+  //           if (in != null) {
+  //               in.close();
+  //           }
+  //       }
+  //   }
+  // }
+
   private void configureQueue() {
+    // CustomSerializer jobSerializer = new CustomSerializer();
     Configuration.Builder builder = new Configuration.Builder(this.getReactApplicationContext())
             .customLogger(new CustomLogger() {
               private static final String TAG = "Queue";
@@ -382,10 +491,12 @@ public class UploaderModule extends ReactContextBaseJavaModule {
 
               }
             })
+            // .jobSerializer(new JavaSerializer())
             .minConsumerCount(1)//always keep at least one consumer alive
             .maxConsumerCount(1)//up to 1 consumers at a time
             .loadFactor(1)//1 jobs per consumer
             .consumerKeepAlive(60);//wait 60 minute
+
 
     // Use http://yigit.github.io/android-priority-jobqueue/javadoc/com/birbit/android/jobqueue/config/Configuration.Builder.html#queueFactory(com.birbit.android.jobqueue.QueueFactory)
 
