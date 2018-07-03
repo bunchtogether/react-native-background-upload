@@ -1,6 +1,7 @@
 package com.vydia.RNUploader;
 
 import android.content.Context;
+import android.os.Build;
 import android.support.annotation.Nullable;
 import android.util.Log;
 import android.webkit.MimeTypeMap;
@@ -48,18 +49,21 @@ import com.birbit.android.jobqueue.config.Configuration;
 import com.birbit.android.jobqueue.log.CustomLogger;
 import com.birbit.android.jobqueue.scheduling.GcmJobSchedulerService;
 //import com.google.android.gms.common.ConnectionResult;
-// import com.google.android.gms.common.GoogleApiAvailability;
-// import com.birbit.android.jobqueue.persistentQueue.sqlite;
+//import com.google.android.gms.common.GoogleApiAvailability;
+//import com.birbit.android.jobqueue.persistentQueue.sqlite;
 
 import com.birbit.android.jobqueue.CancelReason;
 import com.birbit.android.jobqueue.Job;
 import com.birbit.android.jobqueue.Params;
 import com.birbit.android.jobqueue.RetryConstraint;
 
+import com.vydia.RNUploader.services.UploaderService;
+
 
 
 public class UploaderModule extends ReactContextBaseJavaModule {
   private static final String TAG = "UploaderBridge";
+  private static UploaderModule instance;
   private JobManager queue;
   private boolean jobInProgress;
 
@@ -68,6 +72,7 @@ public class UploaderModule extends ReactContextBaseJavaModule {
     UploadService.NAMESPACE = reactContext.getApplicationInfo().packageName;
     UploadService.HTTP_STACK = new OkHttpStack();
     queue = getQueue();
+    instance = this;
   }
 
   @Override
@@ -497,22 +502,17 @@ public class UploaderModule extends ReactContextBaseJavaModule {
             .loadFactor(1)//1 jobs per consumer
             .consumerKeepAlive(60);//wait 60 minute
 
-
-    // Use http://yigit.github.io/android-priority-jobqueue/javadoc/com/birbit/android/jobqueue/config/Configuration.Builder.html#queueFactory(com.birbit.android.jobqueue.QueueFactory)
-
-    // Use SqliteJobQueue.JobSerializer for job presistance
-
-    // Service
-    // if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-    //     builder.scheduler(FrameworkJobSchedulerService.createSchedulerFor(this,
-    //             MyJobService.class), true);
+    // Background Service
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+        builder.scheduler(FrameworkJobSchedulerService.createSchedulerFor(this.getReactApplicationContext(),
+                UploaderService.class), true);
     // } else {
     //     int enableGcm = GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(this);
     //     if (enableGcm == ConnectionResult.SUCCESS) {
     //         builder.scheduler(GcmJobSchedulerService.createSchedulerFor(this,
     //                 MyGcmJobService.class), true);
     //     }
-    // }
+    }
     queue = new JobManager(builder.build());
   }
 
@@ -523,4 +523,7 @@ public class UploaderModule extends ReactContextBaseJavaModule {
     return queue;
   }
 
+  public static UploaderModule getInstance() {
+      return instance;
+  }
 }
