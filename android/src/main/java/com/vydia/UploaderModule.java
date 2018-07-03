@@ -37,6 +37,7 @@ import java.io.IOException;
 import java.lang.ClassNotFoundException;
 import java.io.ByteArrayOutputStream;
 import java.io.ObjectOutputStream;
+import java.io.ObjectOutput;
 import java.io.ObjectInputStream;
 import java.io.ByteArrayInputStream;
 import java.util.UUID;
@@ -50,7 +51,7 @@ import com.birbit.android.jobqueue.log.CustomLogger;
 import com.birbit.android.jobqueue.scheduling.GcmJobSchedulerService;
 //import com.google.android.gms.common.ConnectionResult;
 //import com.google.android.gms.common.GoogleApiAvailability;
-//import com.birbit.android.jobqueue.persistentQueue.sqlite;
+import com.birbit.android.jobqueue.persistentQueue.sqlite.SqliteJobQueue.JobSerializer;
 
 import com.birbit.android.jobqueue.CancelReason;
 import com.birbit.android.jobqueue.Job;
@@ -127,8 +128,8 @@ public class UploaderModule extends ReactContextBaseJavaModule {
       // and should be persisted in case the application exits before job is completed.
 
       // Disabled jobPresistance here
-      // super(new Params(PRIORITY).requireNetwork().persist());
-      super(new Params(PRIORITY).requireNetwork());
+      super(new Params(PRIORITY).requireNetwork().persist());
+      // super(new Params(PRIORITY).requireNetwork());
       localId = -System.currentTimeMillis();
       this.options = options;
     }
@@ -413,61 +414,70 @@ public class UploaderModule extends ReactContextBaseJavaModule {
   // Docs
   //http://yigit.github.io/android-priority-jobqueue/javadoc/com/birbit/android/jobqueue/persistentQueue/sqlite/SqliteJobQueue.JobSerializer.html
   // https://github.com/yigit/android-priority-jobqueue/blob/58fc9dfc63f1358b32b26a262a81e2b98e6441ae/jobqueue/src/main/java/com/birbit/android/jobqueue/persistentQueue/sqlite/SqliteJobQueue.java
+
+  // public interface JobSerializer {
+  //   byte[] serialize(Object object) throws IOException;
+  //   <T extends Job> T deserialize(byte[] bytes) throws IOException, ClassNotFoundException;
+  // }
+
   // public static class CustomSerializer implements JobSerializer {
+  //   @Override
   //   public byte[] serialize(Object job) {
   //     ByteArrayOutputStream out = new ByteArrayOutputStream();
   //     ObjectOutputStream os = new ObjectOutputStream(out);
   //     os.writeObject(job);
   //     return out.toByteArray();
   //   }
+
+  //   @Override
   //   public <JobInstance extends Job> JobInstance deserialize(byte[] data) {
-  //     ByteArrayInputStream in = new ByteArrayInputStream(data);
-  //     ObjectInputStream is = new ObjectInputStream(in);
-  //     return is.readObject();
+  //     ObjectInputStream is = new ObjectInputStream(new ByteArrayInputStream(data));
+  //     return (JobInstance) is.readObject();
   //   }
   // }
 
   // Default Serializer
-  // public static class JavaSerializer implements JobSerializer {
+  public static class CustomSerializer implements JobSerializer {
 
-  //   public byte[] serialize(Object object) throws IOException {
-  //       if (object == null) {
-  //           return null;
-  //       }
-  //       ByteArrayOutputStream bos = null;
-  //       try {
-  //           bos = new ByteArrayOutputStream();
-  //           ObjectOutput out = new ObjectOutputStream(bos);
-  //           out.writeObject(object);
-  //           // Get the bytes of the serialized object
-  //           return bos.toByteArray();
-  //       } finally {
-  //           if (bos != null) {
-  //               bos.close();
-  //           }
-  //       }
-  //   }
+    public byte[] serialize(Object object) throws IOException {
+        if (object == null) {
+            return null;
+        }
+        ByteArrayOutputStream bos = null;
+        Log.d(TAG, String.format("SERIALIZE JOB %s, %s", object.toString()));
+        try {
+            bos = new ByteArrayOutputStream();
+            ObjectOutput out = new ObjectOutputStream(bos);
+            out.writeObject(object);
+            // Get the bytes of the serialized object
+            return bos.toByteArray();
+        } finally {
+            if (bos != null) {
+                bos.close();
+            }
+        }
+    }
 
-  //   @Override
-  //   public <T extends Job> T deserialize(byte[] bytes) throws IOException, ClassNotFoundException {
-  //       if (bytes == null || bytes.length == 0) {
-  //           return null;
-  //       }
-  //       ObjectInputStream in = null;
-  //       try {
-  //           in = new ObjectInputStream(new ByteArrayInputStream(bytes));
-  //           //noinspection unchecked
-  //           return (T) in.readObject();
-  //       } finally {
-  //           if (in != null) {
-  //               in.close();
-  //           }
-  //       }
-  //   }
-  // }
+    @Override
+    public <T extends Job> T deserialize(byte[] bytes) throws IOException, ClassNotFoundException {
+        if (bytes == null || bytes.length == 0) {
+            return null;
+        }
+        ObjectInputStream in = null;
+        try {
+            in = new ObjectInputStream(new ByteArrayInputStream(bytes));
+            //noinspection unchecked
+            return (T) in.readObject();
+        } finally {
+            if (in != null) {
+                in.close();
+            }
+        }
+    }
+  }
 
   private void configureQueue() {
-    // CustomSerializer jobSerializer = new CustomSerializer();
+    JobSerializer jobSerializer = new CustomSerializer();
     Configuration.Builder builder = new Configuration.Builder(this.getReactApplicationContext())
             .customLogger(new CustomLogger() {
               private static final String TAG = "Queue";
@@ -496,7 +506,7 @@ public class UploaderModule extends ReactContextBaseJavaModule {
 
               }
             })
-            // .jobSerializer(new JavaSerializer())
+            .jobSerializer(jobSerializer)
             .minConsumerCount(1)//always keep at least one consumer alive
             .maxConsumerCount(1)//up to 1 consumers at a time
             .loadFactor(1)//1 jobs per consumer
