@@ -18,6 +18,8 @@ import com.facebook.react.bridge.ReadableMapKeySetIterator;
 import com.facebook.react.bridge.ReadableType;
 import com.facebook.react.bridge.WritableMap;
 import com.facebook.react.bridge.WritableNativeMap;
+import com.facebook.react.bridge.WritableNativeArray;
+import com.facebook.react.bridge.WritableArray;
 import com.facebook.react.modules.core.DeviceEventManagerModule;
 
 import net.gotev.uploadservice.BinaryUploadRequest;
@@ -42,6 +44,15 @@ import java.io.ObjectInputStream;
 import java.io.ByteArrayInputStream;
 import java.util.UUID;
 
+import java.util.*;
+import java.lang.reflect.Field;
+
+import org.json.JSONException;
+import org.json.JSONObject;
+import org.json.JSONArray;
+
+import com.google.gson.Gson;
+
 
 import com.birbit.android.jobqueue.JobManager;
 import com.birbit.android.jobqueue.scheduling.FrameworkJobSchedulerService;
@@ -59,6 +70,7 @@ import com.birbit.android.jobqueue.Params;
 import com.birbit.android.jobqueue.RetryConstraint;
 
 import com.vydia.RNUploader.services.UploaderService;
+import com.vydia.RNUploader.Utils.Utils;
 
 
 
@@ -67,6 +79,7 @@ public class UploaderModule extends ReactContextBaseJavaModule {
   private static UploaderModule instance;
   private JobManager queue;
   private boolean jobInProgress;
+  private Utils utils = new Utils();
 
   public UploaderModule(ReactApplicationContext reactContext) {
     super(reactContext);
@@ -122,8 +135,8 @@ public class UploaderModule extends ReactContextBaseJavaModule {
   public class ProcessJob extends Job {
     private long localId;
     public static final int PRIORITY = 1;
-    private transient WritableMap options;
-    public ProcessJob(WritableMap options) {
+    public transient JSONObject options;
+    public ProcessJob(JSONObject options) {
       // This job requires network connectivity,
       // and should be persisted in case the application exits before job is completed.
 
@@ -135,7 +148,7 @@ public class UploaderModule extends ReactContextBaseJavaModule {
     }
     @Override
     public void onAdded() {
-      Log.d(TAG, String.format("ADDED JOB %s : %s", options.getString("url"), options.getMap("parameters").getString("id")));
+//      Log.d(TAG, String.format("ADDED JOB %s : %s", options.get("url"), options.getJSONObject("parameters").getString("id")));
       // Job has been saved to disk.
       // This is a good place to dispatch a UI event to indicate the job will eventually run.
       // In this example, it would be good to update the UI with the newly posted tweet.
@@ -145,12 +158,12 @@ public class UploaderModule extends ReactContextBaseJavaModule {
       // Job logic goes here. In this example, the network call to post to Twitter is done here.
       // All work done here should be synchronous, a job is removed from the queue once 
       // onRun() finishes.
-      Log.d(TAG, String.format("STARTED JOB %s : %s", options.getString("url"), options.getMap("parameters").getString("id")));
-      Log.d(TAG, String.format("SAVED JOB %s", options.toString()));
+      // Log.d(TAG, String.format("STARTED JOB %s : %s", options.get("url"), options.getJSONObject("parameters").getString("id")));
+      Log.d(TAG, String.format("SAVED JOB %s", options));
       startUploadJob(options);
       jobInProgress = true;
       while (jobInProgress) {
-        Log.d(TAG, String.format("JOB IN PROGRESS %s : %s", options.getString("url"), options.getMap("parameters").getString("id")));
+        Log.d(TAG, String.format("JOB IN PROGRESS %s", options));
       }
     }
     @Override
@@ -166,10 +179,37 @@ public class UploaderModule extends ReactContextBaseJavaModule {
     protected void onCancel(@CancelReason int cancelReason, @Nullable Throwable throwable) {
         // Job has exceeded retry attempts or shouldReRunOnThrowable() has decided to cancel.
     } 
+
+    @Override
+    public String toString() {
+      StringBuilder result = new StringBuilder();
+      String newLine = System.getProperty("line.separator");
+
+      result.append( this.getClass().getName() );
+      result.append( " Object {" );
+      result.append(newLine);
+
+      //determine fields declared in this class only (no fields of superclass)
+      Field[] fields = this.getClass().getDeclaredFields();
+
+      //print field names paired with their values
+      for ( Field field : fields  ) {
+        result.append("  ");
+        try {
+          result.append( field.getName() );
+          result.append(": ");
+          //requires access to private field:
+          result.append( field.get(this) );
+        } catch ( IllegalAccessException ex ) {
+          System.out.println(ex);
+        }
+        result.append(newLine);
+      }
+      result.append("}");
+
+      return result.toString();
+    }
   }
-
-
- 
 
   /*
    * Starts a file upload.
@@ -264,38 +304,44 @@ public class UploaderModule extends ReactContextBaseJavaModule {
     // Fetch the uploadId
 
     String uploadId = "";
-    WritableMap jobOptions = Arguments.createMap();
-    jobOptions.merge(options);
-    if (!jobOptions.hasKey("customUploadId") || (jobOptions.hasKey("customUploadId") && options.getType("customUploadId") != ReadableType.String)) {
-      UUID uuid = UUID.randomUUID();
-      uploadId = uuid.toString();
-      jobOptions.putString("customUploadId", uploadId);
-    } else {
-      uploadId = options.getString("customUploadId");
+    JSONObject jobOptions;
+    try {
+      jobOptions = utils.convertMapToJson(options);
+      // CustonUploadID is not provided, generate one
+      if (!options.hasKey("customUploadId") || (options.hasKey("customUploadId") && options.getType("customUploadId") !=  ReadableType.String)) {
+          UUID uuid = UUID.randomUUID();
+          uploadId = uuid.toString();
+          jobOptions.put("customUploadId", uploadId);
+      } else {
+          uploadId = options.getString("customUploadId");
+      }
+      // Add request to Queue
+      queue.addJobInBackground(new ProcessJob(jobOptions));
+
+      // Resolve uploadId
+      promise.resolve(uploadId);
+    } catch(Exception error) {
+      Log.e(TAG, error.getMessage(), error);
+      promise.reject(error);
+      return;
     }
-
-    // Add request to Queue
-    queue.addJobInBackground(new ProcessJob(jobOptions));
-
-    // Resolve uploadId
-    promise.resolve(uploadId);
   }
 
   // Trigger the request
-  public void startUploadJob(WritableMap options) {
+  public void startUploadJob(JSONObject options) throws JSONException {
 
     WritableMap notification = new WritableNativeMap();
     notification.putBoolean("enabled", true);
 
-    if (options.hasKey("notification")) {
-      notification.merge(options.getMap("notification"));
+    if (options.has("notification")) {
+      notification.merge(utils.convertJsonToMap(options.getJSONObject("notification")));
     }
 
     String url = options.getString("url");
-    String filePath = options.hasKey("path") ? options.getString("path") : "";
-    String method = options.hasKey("method") && options.getType("method") == ReadableType.String ? options.getString("method") : "POST";
+    String filePath = options.has("path") ? options.getString("path") : "";
+    String method = options.has("method") && options.get("method") == ReadableType.String ? options.getString("method") : "POST";
 
-    final String customUploadId = options.hasKey("customUploadId") && options.getType("method") == ReadableType.String ? options.getString("customUploadId") : null;
+    final String customUploadId = options.has("customUploadId") && options.get("method") == ReadableType.String ? options.getString("customUploadId") : null;
 
     try {
       UploadStatusDelegate statusDelegate = new UploadStatusDelegate() {
@@ -336,7 +382,7 @@ public class UploaderModule extends ReactContextBaseJavaModule {
 
       HttpUploadRequest<?> request;
       String requestType = "raw";
-      if (options.hasKey("type")) {
+      if (options.has("type")) {
         requestType = options.getString("type");
       }
 
@@ -362,9 +408,9 @@ public class UploaderModule extends ReactContextBaseJavaModule {
         request.setNotificationConfig(new UploadNotificationConfig());
       }
 
-      if (options.hasKey("parameters")) {
+      if (options.has("parameters")) {
 
-        ReadableMap parameters = options.getMap("parameters");
+        ReadableMap parameters = utils.convertJsonToMap(options.getJSONObject("parameters"));
         ReadableMapKeySetIterator keys = parameters.keySetIterator();
 
         while (keys.hasNextKey()) {
@@ -373,8 +419,8 @@ public class UploaderModule extends ReactContextBaseJavaModule {
         }
       }
 
-      if (options.hasKey("headers")) {
-        ReadableMap headers = options.getMap("headers");
+      if (options.has("headers")) {
+        ReadableMap headers = utils.convertJsonToMap(options.getJSONObject("headers"));
         ReadableMapKeySetIterator keys = headers.keySetIterator();
         while (keys.hasNextKey()) {
           String key = keys.nextKey();
@@ -415,27 +461,6 @@ public class UploaderModule extends ReactContextBaseJavaModule {
   //http://yigit.github.io/android-priority-jobqueue/javadoc/com/birbit/android/jobqueue/persistentQueue/sqlite/SqliteJobQueue.JobSerializer.html
   // https://github.com/yigit/android-priority-jobqueue/blob/58fc9dfc63f1358b32b26a262a81e2b98e6441ae/jobqueue/src/main/java/com/birbit/android/jobqueue/persistentQueue/sqlite/SqliteJobQueue.java
 
-  // public interface JobSerializer {
-  //   byte[] serialize(Object object) throws IOException;
-  //   <T extends Job> T deserialize(byte[] bytes) throws IOException, ClassNotFoundException;
-  // }
-
-  // public static class CustomSerializer implements JobSerializer {
-  //   @Override
-  //   public byte[] serialize(Object job) {
-  //     ByteArrayOutputStream out = new ByteArrayOutputStream();
-  //     ObjectOutputStream os = new ObjectOutputStream(out);
-  //     os.writeObject(job);
-  //     return out.toByteArray();
-  //   }
-
-  //   @Override
-  //   public <JobInstance extends Job> JobInstance deserialize(byte[] data) {
-  //     ObjectInputStream is = new ObjectInputStream(new ByteArrayInputStream(data));
-  //     return (JobInstance) is.readObject();
-  //   }
-  // }
-
   // Default Serializer
   public static class CustomSerializer implements JobSerializer {
 
@@ -443,14 +468,31 @@ public class UploaderModule extends ReactContextBaseJavaModule {
         if (object == null) {
             return null;
         }
+
+        Field[] fields = object.getClass().getDeclaredFields();
+        for ( Field field : fields  ) {
+          if (field.getName().toString() == "options") {
+            try {
+                Object options = field.get(object);
+                Log.d(TAG, String.format("SERIALIZE JOB OPTIONS %s:%s", field.getName(), options));
+                // field.set(object, options.toString());
+            } catch ( IllegalAccessException ex ) {
+                Log.e(TAG, ex.getMessage(), ex);
+            }
+          }
+        }
+
         ByteArrayOutputStream bos = null;
-        Log.d(TAG, String.format("SERIALIZE JOB %s, %s", object.toString()));
+        Log.d(TAG, String.format("SERIALIZE JOB %s", object.toString()));
         try {
             bos = new ByteArrayOutputStream();
             ObjectOutput out = new ObjectOutputStream(bos);
-            out.writeObject(object);
+            out.writeObject(object.toString());
             // Get the bytes of the serialized object
             return bos.toByteArray();
+        } catch (Exception exc) {
+          Log.e(TAG, String.format("SERIALIZE JOB ERROR %s", exc.getMessage()), exc);
+          throw exc;
         } finally {
             if (bos != null) {
                 bos.close();
