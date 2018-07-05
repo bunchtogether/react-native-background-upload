@@ -43,6 +43,7 @@ import java.io.ObjectOutput;
 import java.io.ObjectInputStream;
 import java.io.ByteArrayInputStream;
 import java.util.UUID;
+import java.nio.charset.Charset;
 
 import java.util.*;
 import java.lang.reflect.Field;
@@ -50,9 +51,7 @@ import java.lang.reflect.Field;
 import org.json.JSONException;
 import org.json.JSONObject;
 import org.json.JSONArray;
-
 import com.google.gson.Gson;
-
 
 import com.birbit.android.jobqueue.JobManager;
 import com.birbit.android.jobqueue.scheduling.FrameworkJobSchedulerService;
@@ -129,85 +128,6 @@ public class UploaderModule extends ReactContextBaseJavaModule {
     } catch (Exception exc) {
       Log.e(TAG, exc.getMessage(), exc);
       promise.reject(exc);
-    }
-  }
-
-  public class ProcessJob extends Job {
-    private long localId;
-    public static final int PRIORITY = 1;
-    public transient JSONObject options;
-    public ProcessJob(JSONObject options) {
-      // This job requires network connectivity,
-      // and should be persisted in case the application exits before job is completed.
-
-      // Disabled jobPresistance here
-      super(new Params(PRIORITY).requireNetwork().persist());
-      // super(new Params(PRIORITY).requireNetwork());
-      localId = -System.currentTimeMillis();
-      this.options = options;
-    }
-    @Override
-    public void onAdded() {
-//      Log.d(TAG, String.format("ADDED JOB %s : %s", options.get("url"), options.getJSONObject("parameters").getString("id")));
-      // Job has been saved to disk.
-      // This is a good place to dispatch a UI event to indicate the job will eventually run.
-      // In this example, it would be good to update the UI with the newly posted tweet.
-    }
-    @Override
-    public void onRun() throws Throwable {
-      // Job logic goes here. In this example, the network call to post to Twitter is done here.
-      // All work done here should be synchronous, a job is removed from the queue once 
-      // onRun() finishes.
-      // Log.d(TAG, String.format("STARTED JOB %s : %s", options.get("url"), options.getJSONObject("parameters").getString("id")));
-      Log.d(TAG, String.format("SAVED JOB %s", options));
-      startUploadJob(options);
-      jobInProgress = true;
-      while (jobInProgress) {
-        Log.d(TAG, String.format("JOB IN PROGRESS %s", options));
-      }
-    }
-    @Override
-    protected RetryConstraint shouldReRunOnThrowable(Throwable throwable, int runCount,
-            int maxRunCount) {
-        // An error occurred in onRun.
-        // Return value determines whether this job should retry or cancel. You can further
-        // specify a backoff strategy or change the job's priority. You can also apply the
-        // delay to the whole group to preserve jobs' running order.
-        return RetryConstraint.createExponentialBackoff(runCount, 1000);
-    }
-    @Override
-    protected void onCancel(@CancelReason int cancelReason, @Nullable Throwable throwable) {
-        // Job has exceeded retry attempts or shouldReRunOnThrowable() has decided to cancel.
-    } 
-
-    @Override
-    public String toString() {
-      StringBuilder result = new StringBuilder();
-      String newLine = System.getProperty("line.separator");
-
-      result.append( this.getClass().getName() );
-      result.append( " Object {" );
-      result.append(newLine);
-
-      //determine fields declared in this class only (no fields of superclass)
-      Field[] fields = this.getClass().getDeclaredFields();
-
-      //print field names paired with their values
-      for ( Field field : fields  ) {
-        result.append("  ");
-        try {
-          result.append( field.getName() );
-          result.append(": ");
-          //requires access to private field:
-          result.append( field.get(this) );
-        } catch ( IllegalAccessException ex ) {
-          System.out.println(ex);
-        }
-        result.append(newLine);
-      }
-      result.append("}");
-
-      return result.toString();
     }
   }
 
@@ -327,6 +247,100 @@ public class UploaderModule extends ReactContextBaseJavaModule {
     }
   }
 
+  /*
+   * Cancels file upload
+   * Accepts upload ID as a first argument, this upload will be cancelled
+   * Event "cancelled" will be fired when upload is cancelled.
+   */
+  @ReactMethod
+  public void cancelUpload(String cancelUploadId, final Promise promise) {
+    if (!(cancelUploadId instanceof String)) {
+      promise.reject(new IllegalArgumentException("Upload ID must be a string"));
+      return;
+    }
+    try {
+      UploadService.stopUpload(cancelUploadId);
+      promise.resolve(true);
+    } catch (Exception exc) {
+      Log.e(TAG, exc.getMessage(), exc);
+      promise.reject(exc);
+    }
+  }
+
+  public class ProcessJob extends Job {
+    private long localId;
+    public static final int PRIORITY = 1;
+    public JSONObject options;
+    public ProcessJob(JSONObject options) {
+      // This job requires network connectivity,
+      // and should be persisted in case the application exits before job is completed.
+
+      // Disabled jobPresistance here
+      super(new Params(PRIORITY).requireNetwork().persist());
+      // super(new Params(PRIORITY).requireNetwork());
+      localId = -System.currentTimeMillis();
+      this.options = options;
+    }
+    @Override
+    public void onAdded() {
+     Log.d(TAG, String.format("ADDED JOB %s", options.toString()));
+    }
+    @Override
+    public void onRun() throws Throwable {
+      // Job logic goes here. In this example, the network call to post to Twitter is done here.
+      // All work done here should be synchronous, a job is removed from the queue once 
+      // onRun() finishes.
+      startUploadJob(options);
+      jobInProgress = true;
+      while (jobInProgress) {
+        Log.d(TAG, String.format("JOB IN PROGRESS %s", options.toString()));
+      }
+    }
+    @Override
+    protected RetryConstraint shouldReRunOnThrowable(Throwable throwable, int runCount,
+            int maxRunCount) {
+        // An error occurred in onRun.
+        // Return value determines whether this job should retry or cancel. You can further
+        // specify a backoff strategy or change the job's priority. You can also apply the
+        // delay to the whole group to preserve jobs' running order.
+        return RetryConstraint.createExponentialBackoff(runCount, 1000);
+    }
+    @Override
+    protected void onCancel(@CancelReason int cancelReason, @Nullable Throwable throwable) {
+        // Job has exceeded retry attempts or shouldReRunOnThrowable() has decided to cancel.
+    } 
+
+    @Override
+    public String toString() {
+      StringBuilder result = new StringBuilder();
+      String newLine = System.getProperty("line.separator");
+
+      result.append( this.getClass().getName() );
+      result.append( " Object {" );
+      result.append(newLine);
+
+      //determine fields declared in this class only (no fields of superclass)
+      Field[] fields = this.getClass().getDeclaredFields();
+
+      //print field names paired with their values
+      for ( Field field : fields  ) {
+        result.append("  ");
+        try {
+          result.append( field.getName() );
+          result.append(": ");
+          //requires access to private field:
+          result.append( field.get(this) );
+        } catch ( IllegalAccessException ex ) {
+          System.out.println(ex);
+        }
+        result.append(newLine);
+      }
+      result.append("}");
+
+      return result.toString();
+    }
+  }
+
   // Trigger the request
   public void startUploadJob(JSONObject options) throws JSONException {
 
@@ -340,8 +354,7 @@ public class UploaderModule extends ReactContextBaseJavaModule {
     String url = options.getString("url");
     String filePath = options.has("path") ? options.getString("path") : "";
     String method = options.has("method") && options.get("method") == ReadableType.String ? options.getString("method") : "POST";
-
-    final String customUploadId = options.has("customUploadId") && options.get("method") == ReadableType.String ? options.getString("customUploadId") : null;
+    final String customUploadId = options.getString("customUploadId");
 
     try {
       UploadStatusDelegate statusDelegate = new UploadStatusDelegate() {
@@ -437,67 +450,77 @@ public class UploaderModule extends ReactContextBaseJavaModule {
     }
   }
 
-  /*
-   * Cancels file upload
-   * Accepts upload ID as a first argument, this upload will be cancelled
-   * Event "cancelled" will be fired when upload is cancelled.
-   */
-  @ReactMethod
-  public void cancelUpload(String cancelUploadId, final Promise promise) {
-    if (!(cancelUploadId instanceof String)) {
-      promise.reject(new IllegalArgumentException("Upload ID must be a string"));
-      return;
-    }
-    try {
-      UploadService.stopUpload(cancelUploadId);
-      promise.resolve(true);
-    } catch (Exception exc) {
-      Log.e(TAG, exc.getMessage(), exc);
-      promise.reject(exc);
-    }
-  }
-
   // Docs
   //http://yigit.github.io/android-priority-jobqueue/javadoc/com/birbit/android/jobqueue/persistentQueue/sqlite/SqliteJobQueue.JobSerializer.html
   // https://github.com/yigit/android-priority-jobqueue/blob/58fc9dfc63f1358b32b26a262a81e2b98e6441ae/jobqueue/src/main/java/com/birbit/android/jobqueue/persistentQueue/sqlite/SqliteJobQueue.java
 
   // Default Serializer
-  public static class CustomSerializer implements JobSerializer {
+  // public static class CustomSerializer implements JobSerializer {
+
+  //   public byte[] serialize(Object object) throws IOException {
+  //       if (object == null) {
+  //           return null;
+  //       }
+
+  //       Field[] fields = object.getClass().getDeclaredFields();
+  //       for ( Field field : fields  ) {
+  //         if (field.getName().toString() == "options") {
+  //           try {
+  //               Object options = field.get(object);
+  //               Log.d(TAG, String.format("SERIALIZE JOB OPTIONS %s:%s", field.getName(), options));
+  //               // field.set(object, options.toString());
+  //           } catch ( IllegalAccessException ex ) {
+  //               Log.e(TAG, ex.getMessage(), ex);
+  //           }
+  //         }
+  //       }
+
+  //       ByteArrayOutputStream bos = null;
+  //       Log.d(TAG, String.format("SERIALIZE JOB %s", object.toString()));
+  //       try {
+  //           bos = new ByteArrayOutputStream();
+  //           ObjectOutput out = new ObjectOutputStream(bos);
+  //           out.writeObject(object.toString());
+  //           // Get the bytes of the serialized object
+  //           return bos.toByteArray();
+  //       } catch (Exception exc) {
+  //         Log.e(TAG, String.format("SERIALIZE JOB ERROR %s", exc.getMessage()), exc);
+  //         throw exc;
+  //       } finally {
+  //           if (bos != null) {
+  //               bos.close();
+  //           }
+  //       }
+  //   }
+
+  //   @Override
+  //   public <T extends Job> T deserialize(byte[] bytes) throws IOException, ClassNotFoundException {
+  //       if (bytes == null || bytes.length == 0) {
+  //           return null;
+  //       }
+  //       ObjectInputStream in = null;
+  //       try {
+  //           in = new ObjectInputStream(new ByteArrayInputStream(bytes));
+  //           //noinspection unchecked
+  //           return (T) in.readObject();
+  //       } finally {
+  //           if (in != null) {
+  //               in.close();
+  //           }
+  //       }
+  //   }
+  // }
+
+  public static class GsonSerializer implements JobSerializer {
+    private static final Charset UTF8 = Charset.forName("UTF-8");
 
     public byte[] serialize(Object object) throws IOException {
         if (object == null) {
             return null;
         }
-
-        Field[] fields = object.getClass().getDeclaredFields();
-        for ( Field field : fields  ) {
-          if (field.getName().toString() == "options") {
-            try {
-                Object options = field.get(object);
-                Log.d(TAG, String.format("SERIALIZE JOB OPTIONS %s:%s", field.getName(), options));
-                // field.set(object, options.toString());
-            } catch ( IllegalAccessException ex ) {
-                Log.e(TAG, ex.getMessage(), ex);
-            }
-          }
-        }
-
-        ByteArrayOutputStream bos = null;
-        Log.d(TAG, String.format("SERIALIZE JOB %s", object.toString()));
-        try {
-            bos = new ByteArrayOutputStream();
-            ObjectOutput out = new ObjectOutputStream(bos);
-            out.writeObject(object.toString());
-            // Get the bytes of the serialized object
-            return bos.toByteArray();
-        } catch (Exception exc) {
-          Log.e(TAG, String.format("SERIALIZE JOB ERROR %s", exc.getMessage()), exc);
-          throw exc;
-        } finally {
-            if (bos != null) {
-                bos.close();
-            }
-        }
+        Gson gson = new Gson();
+        String json = gson.toJson(object);
+        return json.getBytes(UTF8);
     }
 
     @Override
@@ -505,21 +528,14 @@ public class UploaderModule extends ReactContextBaseJavaModule {
         if (bytes == null || bytes.length == 0) {
             return null;
         }
-        ObjectInputStream in = null;
-        try {
-            in = new ObjectInputStream(new ByteArrayInputStream(bytes));
-            //noinspection unchecked
-            return (T) in.readObject();
-        } finally {
-            if (in != null) {
-                in.close();
-            }
-        }
+        Gson gson = new Gson();
+        ProcessJob job = gson.fromJson(new String(bytes, UTF8), ProcessJob.class);
+        return (T) job;
     }
   }
 
   private void configureQueue() {
-    JobSerializer jobSerializer = new CustomSerializer();
+    JobSerializer jobSerializer = new GsonSerializer();
     Configuration.Builder builder = new Configuration.Builder(this.getReactApplicationContext())
             .customLogger(new CustomLogger() {
               private static final String TAG = "Queue";
