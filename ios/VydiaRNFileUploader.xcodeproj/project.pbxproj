@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		725D56EE20F7C84C0070A9BE /* TRVSQueuedURLSesssion.m in Sources */ = {isa = PBXBuildFile; fileRef = 725D56ED20F7C84C0070A9BE /* TRVSQueuedURLSesssion.m */; };
 		DCC748851E044F8700EA453E /* VydiaRNFileUploader.m in Sources */ = {isa = PBXBuildFile; fileRef = DCC748841E044F8700EA453E /* VydiaRNFileUploader.m */; };
 /* End PBXBuildFile section */
 
@@ -24,6 +25,8 @@
 
 /* Begin PBXFileReference section */
 		014A3B5C1C6CF33500B6D375 /* libVydiaRNFileUploader.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libVydiaRNFileUploader.a; sourceTree = BUILT_PRODUCTS_DIR; };
+		725D56EC20F7C8310070A9BE /* TRVSQueuedURLSesssion.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = TRVSQueuedURLSesssion.h; sourceTree = "<group>"; };
+		725D56ED20F7C84C0070A9BE /* TRVSQueuedURLSesssion.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = TRVSQueuedURLSesssion.m; sourceTree = "<group>"; };
 		DCC748841E044F8700EA453E /* VydiaRNFileUploader.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = VydiaRNFileUploader.m; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -41,6 +44,8 @@
 		014A3B531C6CF33500B6D375 = {
 			isa = PBXGroup;
 			children = (
+				725D56EC20F7C8310070A9BE /* TRVSQueuedURLSesssion.h */,
+				725D56ED20F7C84C0070A9BE /* TRVSQueuedURLSesssion.m */,
 				DCC748841E044F8700EA453E /* VydiaRNFileUploader.m */,
 				014A3B5D1C6CF33500B6D375 /* Products */,
 			);
@@ -110,6 +115,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				725D56EE20F7C84C0070A9BE /* TRVSQueuedURLSesssion.m in Sources */,
 				DCC748851E044F8700EA453E /* VydiaRNFileUploader.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
