@@ -17,23 +17,17 @@ BLOCK(); \
     BOOL _executing;
 }
 
-- (instancetype)initWithSession:(NSURLSession *)session uploadId:(NSString *)uploadId request:(NSURLRequest *)request completionHandler:(void (^)(NSData *data, NSURLResponse *response, NSError *error))completionHandler {
+- (instancetype)initWithSession:(NSURLSession *)session uploadId:(NSString *)uploadId request:(NSURLRequest *)request {
     if (self = [super init]) {
-        __weak typeof(self) weakSelf = self;
-        _task = [session uploadTaskWithRequest:request fromData:nil completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-            [weakSelf completeOperationWithBlock:completionHandler data:data response:response error:error];
-        }];
+        _task = [session uploadTaskWithRequest:request fromData:nil];
         _task.taskDescription = uploadId;
     }
     return self;
 }
 
-- (instancetype)initWithSession:(NSURLSession *)session uploadId:(NSString *)uploadId request:(NSURLRequest *)request fromFileUrl:(NSURL *)fileURL completionHandler:(void (^)(NSData *data, NSURLResponse *response, NSError *error))completionHandler {
+- (instancetype)initWithSession:(NSURLSession *)session uploadId:(NSString *)uploadId request:(NSURLRequest *)request fromFileUrl:(NSURL *)fileURL {
     if (self = [super init]) {
-        __weak typeof(self) weakSelf = self;
-        _task = [session uploadTaskWithRequest:request fromFile:fileURL completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-            [weakSelf completeOperationWithBlock:completionHandler data:data response:response error:error];
-        }];
+        _task = [session uploadTaskWithRequest:request fromFile:fileURL];
         _task.taskDescription = uploadId;
     }
     return self;
@@ -65,12 +59,6 @@ BLOCK(); \
 
 - (BOOL)isConcurrent {
     return YES;
-}
-
-- (void)completeOperationWithBlock:(void (^)(NSData *, NSURLResponse *, NSError *))block data:(NSData *)data response:(NSURLResponse *)response error:(NSError *)error {
-    if (!self.isCancelled && block)
-        block(data, response, error);
-    [self completeOperation];
 }
 
 - (void)completeOperation {

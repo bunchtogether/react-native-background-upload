@@ -8,9 +8,11 @@
 
 @interface VydiaRNFileUploader : RCTEventEmitter <RCTBridgeModule, NSURLSessionTaskDelegate>
 {
+    NSMutableDictionary *_responsesData;
     NSOperationQueue *_mainOperationQueue;
     NSMutableOrderedSet *_uploadIds;
     NSMutableDictionary *_operationQueues;
+    NSMutableDictionary *_operations;
 }
 
 @end
@@ -54,7 +56,6 @@ static NSString *BACKGROUND_SESSION_ID = @"ReactNativeBackgroundUpload";
         for (NSString *key in [dictionaryValue allKeys]) {
             normalizedDictionary[key] = [self normalizeValue:dictionaryValue[key]];
         }
-        
         return normalizedDictionary;
     } else if ([value isKindOfClass:[NSArray class]]) {
         NSArray *arrayValue = (NSArray*)value;
@@ -62,7 +63,6 @@ static NSString *BACKGROUND_SESSION_ID = @"ReactNativeBackgroundUpload";
         for (id element in arrayValue) {
             [normalizedArray addObject:[self normalizeValue:element]];
         }
-        
         return normalizedArray;
     } else if ([value isKindOfClass:[NSString class]]) {
         NSString *stringValue = (NSString*)value;
@@ -78,10 +78,12 @@ static NSString *BACKGROUND_SESSION_ID = @"ReactNativeBackgroundUpload";
     self = [super init];
     if (self) {
         staticEventEmitter = self;
+        _responsesData = [NSMutableDictionary dictionary];
         _mainOperationQueue = [[NSOperationQueue alloc] init];
         _mainOperationQueue.maxConcurrentOperationCount = 1;
         _uploadIds = [[NSMutableOrderedSet alloc] init];
         _operationQueues = [[NSMutableDictionary alloc] init];
+        _operations = [[NSMutableDictionary alloc] init];
         NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
         NSArray *ids = [defaults stringArrayForKey: @"backgroundUploads"];
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -192,6 +194,11 @@ RCT_EXPORT_METHOD(getFileInfo:(NSString *)path resolve:(RCTPromiseResolveBlock)r
 
 - (void)removeUpload: (NSString *)uploadId {
     [_uploadIds removeObject:uploadId];
+    TRVSURLSessionOperation *operation = _operations[uploadId];
+    if(operation){
+        [operation completeOperation];
+    }
+    [_operations removeObjectForKey:uploadId];
     NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
     [defaults removeObjectForKey:uploadId];
     [defaults setObject:[_uploadIds array] forKey:@"backgroundUploads"];
@@ -213,13 +220,10 @@ RCT_EXPORT_METHOD(getFileInfo:(NSString *)path resolve:(RCTPromiseResolveBlock)r
     if(queueId) {
         queue = _operationQueues[queueId];
         if(!queue) {
-            RCTLog(@"Creating Queue %@", queueId);
             queue = [[NSOperationQueue alloc] init];
             queue.maxConcurrentOperationCount = 1;
             [_operationQueues setObject:queue forKey:queueId];
         }
-    } else {
-        RCTLog(@"No Queue ID");
     }
 
     NSURL *requestUrl = [NSURL URLWithString: uploadUrl];
@@ -266,48 +270,28 @@ RCT_EXPORT_METHOD(getFileInfo:(NSString *)path resolve:(RCTPromiseResolveBlock)r
         }
     }
     
-    void (^completionHandler)(NSData*, NSURLResponse*, NSError*) = ^(NSData *data, NSURLResponse *response, NSError *error) {
-        [self removeUpload:uploadId];
-        NSMutableDictionary *eventData = [NSMutableDictionary dictionaryWithObjectsAndKeys:uploadId, @"id", nil];
-        if (response) {
-            NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse*) response;
-            [eventData setObject:[NSNumber numberWithInteger:httpResponse.statusCode] forKey:@"responseCode"];
-        }
-        if(data) {
-            [eventData setObject:[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] forKey:@"responseBody"];
-        }
-        NSLog(@"Completion handler %@: %@", uploadId, eventData);
-        if (error == nil) {
-            [self _sendEventWithName:@"RNFileUploader-completed" body:eventData];
-        } else {
-            NSLog(@"Upload error for %@: %@", uploadId, error.localizedDescription);
-            [eventData setObject:error.localizedDescription forKey:@"error"];
-            if (error.code == NSURLErrorCancelled) {
-                [self _sendEventWithName:@"RNFileUploader-cancelled" body:eventData];
-            } else {
-                [self _sendEventWithName:@"RNFileUploader-error" body:eventData];
-            }
-        }
-    };
+    TRVSURLSessionOperation *operation;
     
     if ([uploadType isEqualToString:@"multipart"]) {
         NSString *uuidStr = [[NSUUID UUID] UUIDString];
         [request setValue:[NSString stringWithFormat:@"multipart/form-data; boundary=%@", uuidStr] forHTTPHeaderField:@"Content-Type"];
         NSData *httpBody = [self createBodyWithBoundary:uuidStr path:fileURI parameters: parameters fieldName:fieldName];
         [request setHTTPBody: httpBody];
-        [queue addOperation:[[TRVSURLSessionOperation alloc] initWithSession:[self urlSession] uploadId:uploadId request:request completionHandler:completionHandler]];
+        operation = [[TRVSURLSessionOperation alloc] initWithSession:[self urlSession] uploadId:uploadId request:request];
     } else if ([uploadType isEqualToString:@"json"]) {
         [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
         NSData *httpBody = [VydiaRNFileUploader normalizedJSONRequestBody:parameters];
         [request setHTTPBody:httpBody];
-        [queue addOperation:[[TRVSURLSessionOperation alloc] initWithSession:[self urlSession] uploadId:uploadId request:request completionHandler:completionHandler]];
+        operation = [[TRVSURLSessionOperation alloc] initWithSession:[self urlSession] uploadId:uploadId request:request];
     } else {
         if (parameters.count > 0) {
             RCTLogError(@"RN Uploader: Parameters supported only in 'multipart' and 'json' type");
             return [self removeUpload:uploadId];
         }
-        [queue addOperation:[[TRVSURLSessionOperation alloc] initWithSession:[self urlSession] uploadId:uploadId request:request fromFileUrl:[NSURL URLWithString:fileURI] completionHandler:completionHandler]];
+        operation = [[TRVSURLSessionOperation alloc] initWithSession:[self urlSession] uploadId:uploadId request:request fromFileUrl:[NSURL URLWithString:fileURI]];
     }
+    [_operations setObject:operation forKey:uploadId];
+    [queue addOperation:operation];
     NSLog(@"Request: %@ | %@", requestUrl.absoluteString, uploadId);
 }
 
@@ -386,8 +370,7 @@ RCT_EXPORT_METHOD(cancelUpload: (NSString *)cancelUploadId resolve:(RCTPromiseRe
 #if (TARGET_IPHONE_SIMULATOR)
         NSURLSessionConfiguration *config = [NSURLSessionConfiguration defaultSessionConfiguration];
 #else
-        //NSURLSessionConfiguration *config = [NSURLSessionConfiguration backgroundSessionConfigurationWithIdentifier:BACKGROUND_SESSION_ID];
-        NSURLSessionConfiguration *config = [NSURLSessionConfiguration defaultSessionConfiguration];
+        NSURLSessionConfiguration *config = [NSURLSessionConfiguration backgroundSessionConfigurationWithIdentifier:BACKGROUND_SESSION_ID];
 #endif
         config.allowsCellularAccess = YES;
         config.requestCachePolicy = NSURLRequestReloadIgnoringLocalCacheData;
@@ -399,6 +382,7 @@ RCT_EXPORT_METHOD(cancelUpload: (NSString *)cancelUploadId resolve:(RCTPromiseRe
     });
     return session;
 }
+
 
 #pragma NSURLSessionTaskDelegate
 
@@ -414,6 +398,63 @@ totalBytesExpectedToSend:(int64_t)totalBytesExpectedToSend {
     }
     [self _sendEventWithName:@"RNFileUploader-progress" body:@{ @"id": task.taskDescription, @"progress": [NSNumber numberWithFloat:progress] }];
     NSLog(@"Progress: %@, %@", [NSNumber numberWithFloat:progress], task.taskDescription);
+}
+
+- (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)dataTask didReceiveData:(NSData *)data {
+    if (!data.length) {
+        return;
+    }
+    //Hold returned data so it can be picked up by the didCompleteWithError method later
+    NSMutableData *responseData = _responsesData[@(dataTask.taskIdentifier)];
+    if (!responseData) {
+        responseData = [NSMutableData dataWithData:data];
+        _responsesData[@(dataTask.taskIdentifier)] = responseData;
+    } else {
+        [responseData appendData:data];
+    }
+    NSLog(@"DidReceiveData: %@", dataTask.taskDescription);
+}
+
+- (void)URLSession:(NSURLSession *)session
+              task:(NSURLSessionTask *)task
+didCompleteWithError:(NSError *)error {
+    
+    NSMutableDictionary *eventData = [NSMutableDictionary dictionaryWithObjectsAndKeys:task.taskDescription, @"id", nil];
+    NSURLSessionDataTask *uploadTask = (NSURLSessionDataTask *)task;
+    NSHTTPURLResponse *response = (NSHTTPURLResponse *)uploadTask.response;
+    NSString *uploadId = task.taskDescription;
+    
+    if (response) {
+        NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse*) response;
+        [eventData setObject:[NSNumber numberWithInteger:httpResponse.statusCode] forKey:@"responseCode"];
+    }
+    
+    //Add data that was collected earlier by the didReceiveData method
+    NSMutableData *responseData = _responsesData[@(task.taskIdentifier)];
+    if (responseData) {
+        [_responsesData removeObjectForKey:@(task.taskIdentifier)];
+        NSString *response = [[NSString alloc] initWithData:responseData encoding:NSUTF8StringEncoding];
+        [eventData setObject:response forKey:@"responseBody"];
+        NSLog(@"Upload response for %@: %@", task.taskDescription, response);
+    } else {
+        [eventData setObject:[NSNull null] forKey:@"responseBody"];
+    }
+    
+    NSLog(@"Completion handler %@: %@", uploadId, eventData);
+    if (error == nil) {
+        [self _sendEventWithName:@"RNFileUploader-completed" body:eventData];
+    } else {
+        NSLog(@"Upload error for %@: %@", uploadId, error.localizedDescription);
+        [eventData setObject:error.localizedDescription forKey:@"error"];
+        if (error.code == NSURLErrorCancelled) {
+            [self _sendEventWithName:@"RNFileUploader-cancelled" body:eventData];
+        } else {
+            [self _sendEventWithName:@"RNFileUploader-error" body:eventData];
+        }
+    }
+    
+    [self removeUpload:uploadId];
+    
 }
 
 @end
