@@ -199,16 +199,16 @@ public class UploaderModule extends ReactContextBaseJavaModule {
         return;
       }
 
-      ReadableMap parameters = options.getMap("parameters");
-      ReadableMapKeySetIterator keys = parameters.keySetIterator();
+    //   ReadableMap parameters = options.getMap("parameters");
+    //   ReadableMapKeySetIterator keys = parameters.keySetIterator();
       
-      while (keys.hasNextKey()) {
-        String key = keys.nextKey();
-        if (parameters.getType(key) != ReadableType.String) {
-          promise.reject(new IllegalArgumentException("Parameters must be string key/values. Value was invalid for '" + key + "'"));
-          return;
-        }
-      }
+    //   while (keys.hasNextKey()) {
+    //     String key = keys.nextKey();
+    //     if (parameters.getType(key) != ReadableType.String || parameters.getType(key) != ReadableType.Boolean) {
+    //       promise.reject(new IllegalArgumentException("Parameters must be string key/values(string, boolean, number). Value was invalid for '" + key + "'"));
+    //       return;
+    //     }
+    //   }
     }
 
     // Validate headers
