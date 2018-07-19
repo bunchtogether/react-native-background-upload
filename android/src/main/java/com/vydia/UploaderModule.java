@@ -299,6 +299,7 @@ public class UploaderModule extends ReactContextBaseJavaModule {
       jobInProgress = true;
       while (jobInProgress) {
         Log.d(TAG, String.format("JOB IN PROGRESS %s", options));
+        Thread.sleep(1000);
       }
     }
     @Override
@@ -318,38 +319,6 @@ public class UploaderModule extends ReactContextBaseJavaModule {
     private void sendEvent(String eventName, @Nullable WritableMap params) {
       getInstance().getReactApplicationContext().getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class).emit("RNFileUploader-" + eventName, params);
     }
-
-
-    // @Override
-    // public String toString() {
-    //   StringBuilder result = new StringBuilder();
-    //   String newLine = System.getProperty("line.separator");
-
-    //   result.append( this.getClass().getName() );
-    //   result.append( " Object {" );
-    //   result.append(newLine);
-
-    //   //determine fields declared in this class only (no fields of superclass)
-    //   Field[] fields = this.getClass().getDeclaredFields();
-
-    //   //print field names paired with their values
-    //   for ( Field field : fields  ) {
-    //     result.append("  ");
-    //     try {
-    //       result.append( field.getName() );
-    //       result.append(": ");
-    //       //requires access to private field:
-    //       result.append( field.get(this) );
-    //     } catch ( IllegalAccessException ex ) {
-    //       System.out.println(ex);
-    //     }
-    //     result.append(newLine);
-    //   }
-    //   result.append("}");
-
-    //   return result.toString();
-    // }
-
 
   // Trigger the request
     public void startUploadJob(String jobOptions) throws JSONException {
@@ -381,11 +350,18 @@ public class UploaderModule extends ReactContextBaseJavaModule {
         }
 
         @Override
-        public void onError(Context context, UploadInfo uploadInfo, Exception exception) {
+        public void onError(Context context, UploadInfo uploadInfo, final ServerResponse serverResponse, Exception exception) {
           WritableMap params = Arguments.createMap();
           params.putString("id", customUploadId != null ? customUploadId : uploadInfo.getUploadId());
-          params.putString("error", exception.getMessage());
+          Log.d(TAG, String.format("ERROR IN JOB %s", customUploadId), exception);
+          /*
+          if (exception != null)
+              params.putString("error", exception.getMessage());
+          else
+              Log.e(TAG, "onError has no exception, server response is " + serverResponse.getBodyAsString());
+          */
           sendEvent("error", params);
+          jobInProgress = false;
         }
 
         @Override
@@ -396,6 +372,7 @@ public class UploaderModule extends ReactContextBaseJavaModule {
           params.putString("responseBody", serverResponse.getBodyAsString());
           sendEvent("completed", params);
           jobInProgress = false;
+          Log.d(TAG, String.format("completed JOB %s", customUploadId));
         }
 
         @Override
@@ -404,6 +381,7 @@ public class UploaderModule extends ReactContextBaseJavaModule {
           params.putString("id", customUploadId != null ? customUploadId : uploadInfo.getUploadId());
           sendEvent("cancelled", params);
           jobInProgress = false;
+          Log.d(TAG, String.format("cancelled JOB %s", customUploadId));
         }
       };
 
@@ -456,7 +434,7 @@ public class UploaderModule extends ReactContextBaseJavaModule {
       // String uploadId = request.startUpload();
       // promise.resolve(uploadId);
       String uploadId = request.startUpload();
-      Log.d(TAG, String.format("FINISHED JOB %s", uploadId));
+      Log.d(TAG, String.format("STARTED JOB %s", uploadId));
     } catch (Exception exc) {
       Log.e(TAG, exc.getMessage(), exc);
       // promise.reject(exc);
@@ -464,57 +442,6 @@ public class UploaderModule extends ReactContextBaseJavaModule {
   }
   }
 
-
-  // Docs
-  //http://yigit.github.io/android-priority-jobqueue/javadoc/com/birbit/android/jobqueue/persistentQueue/sqlite/SqliteJobQueue.JobSerializer.html
-  // https://github.com/yigit/android-priority-jobqueue/blob/58fc9dfc63f1358b32b26a262a81e2b98e6441ae/jobqueue/src/main/java/com/birbit/android/jobqueue/persistentQueue/sqlite/SqliteJobQueue.java
-
-  // Default Serializer
-  // public static class CustomSerializer implements JobSerializer {
-
-  //   public byte[] serialize(Object object) throws IOException {
-  //       if (object == null) {
-  //           return null;
-  //       }
-
-  //       ByteArrayOutputStream bos = null;
-  //       Log.d(TAG, String.format("SERIALIZE JOB %s", object.toString()));
-  //       try {
-  //           bos = new ByteArrayOutputStream();
-  //           ObjectOutput out = new ObjectOutputStream(bos);
-  //           out.writeObject(object.toString());
-  //           // Get the bytes of the serialized object
-  //           return bos.toByteArray();
-  //       } catch (Exception exc) {
-  //         Log.e(TAG, String.format("SERIALIZE JOB ERROR %s", exc.getMessage()), exc);
-  //         throw exc;
-  //       } finally {
-  //           if (bos != null) {
-  //               bos.close();
-  //           }
-  //       }
-  //   }
-
-  //   @Override
-  //   public <T extends Job> T deserialize(byte[] bytes) throws IOException, ClassNotFoundException {
-  //       if (bytes == null || bytes.length == 0) {
-  //           return null;
-  //       }
-  //       ObjectInputStream in = null;
-  //       try {
-  //           in = new ObjectInputStream(new ByteArrayInputStream(bytes));
-  //           //noinspection unchecked
-  //           return (T) in.readObject();
-  //       } catch (Exception exc) {
-  //         Log.e(TAG, String.format("DESERIALIZE JOB ERROR %s", exc.getMessage()), exc);
-  //         throw exc;
-  //       } finally {
-  //           if (in != null) {
-  //               in.close();
-  //           }
-  //       }
-  //   }
-  // }
 
   public static class GsonSerializer implements JobSerializer {
     private static final Charset UTF8 = Charset.forName("UTF-8");
