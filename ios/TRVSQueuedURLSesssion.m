@@ -20,15 +20,35 @@ BLOCK(); \
 - (instancetype)initWithSession:(NSURLSession *)session uploadId:(NSString *)uploadId request:(NSURLRequest *)request {
     if (self = [super init]) {
         _task = [session uploadTaskWithRequest:request fromData:nil];
+        // Retry a failed background task if initial creation did not succeed
+        if (!_task && session.configuration.identifier) {
+            for (NSUInteger attempts = 0; !_task && attempts < 3; attempts++) {
+                _task = [session uploadTaskWithRequest:request fromData:nil];
+            }
+        }
         _task.taskDescription = uploadId;
+        _executing = NO;
+        _finished = NO;
     }
     return self;
+}
+
+- (NSString *)uploadId {
+    return _task.taskDescription;
 }
 
 - (instancetype)initWithSession:(NSURLSession *)session uploadId:(NSString *)uploadId request:(NSURLRequest *)request fromFileUrl:(NSURL *)fileURL {
     if (self = [super init]) {
         _task = [session uploadTaskWithRequest:request fromFile:fileURL];
+        // Retry a failed background task if initial creation did not succeed
+        if (!_task && session.configuration.identifier) {
+            for (NSUInteger attempts = 0; !_task && attempts < 3; attempts++) {
+                _task = [session uploadTaskWithRequest:request fromFile:fileURL];
+            }
+        }
         _task.taskDescription = uploadId;
+        _executing = NO;
+        _finished = NO;
     }
     return self;
 }
@@ -44,6 +64,7 @@ BLOCK(); \
         return;
     }
     TRVSKVOBlock(@"isExecuting", ^{
+        NSLog(@"isExecuting %@", _task.taskDescription);
         [self.task resume];
         _executing = YES;
     });

@@ -5,19 +5,18 @@
 #import <React/RCTBridgeModule.h>
 #import <Photos/Photos.h>
 #import "TRVSQueuedURLSesssion.h"
+#import "VydiaRNFileUploader.h"
 
-@interface VydiaRNFileUploader : RCTEventEmitter <RCTBridgeModule, NSURLSessionTaskDelegate>
-{
-    NSMutableDictionary *_responsesData;
-    NSOperationQueue *_mainOperationQueue;
-    NSMutableOrderedSet *_uploadIds;
-    NSMutableDictionary *_operationQueues;
-    NSMutableDictionary *_operations;
-}
+
+@interface VydiaRNFileUploader ()
+
+@property (nonatomic, strong) NSMutableDictionary *responsesData;
+@property (nonatomic, strong) NSOperationQueue *mainOperationQueue;
+@property (nonatomic, strong) NSMutableOrderedSet *uploadIds;
+@property (nonatomic, strong) NSMutableDictionary *operationQueues;
+@property (nonatomic, strong) NSMutableDictionary *operations;
 
 @end
-
-extern NSString *const FILE_PREFIX = @"file://";
 
 @implementation VydiaRNFileUploader
 
@@ -66,7 +65,7 @@ static NSString *BACKGROUND_SESSION_ID = @"ReactNativeBackgroundUpload";
         return normalizedArray;
     } else if ([value isKindOfClass:[NSString class]]) {
         NSString *stringValue = (NSString*)value;
-        if ([stringValue containsString:FILE_PREFIX]) {
+        if ([stringValue containsString:@"file://"]) {
             return [self base64StringForFile:stringValue];
         }
     }
@@ -82,8 +81,7 @@ static NSString *BACKGROUND_SESSION_ID = @"ReactNativeBackgroundUpload";
         _mainOperationQueue = [[NSOperationQueue alloc] init];
         _mainOperationQueue.maxConcurrentOperationCount = 1;
         _uploadIds = [[NSMutableOrderedSet alloc] init];
-        _operationQueues = [[NSMutableDictionary alloc] init];
-        _operations = [[NSMutableDictionary alloc] init];
+        _operationQueues = [NSMutableDictionary dictionary];
         NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
         NSArray *ids = [defaults stringArrayForKey: @"backgroundUploads"];
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -98,6 +96,33 @@ static NSString *BACKGROUND_SESSION_ID = @"ReactNativeBackgroundUpload";
         });
     }
     return self;
+}
+
+- (dispatch_queue_t)methodQueue
+{
+    return dispatch_queue_create("react-native-uploader", DISPATCH_QUEUE_SERIAL);
+}
+
+- (void) clearOperation:(NSString *)uploadId {
+    NSOperationQueue *queue = _mainOperationQueue;
+    for(TRVSURLSessionOperation *operation in queue.operations) {
+        if([operation uploadId] == uploadId) {
+            [operation completeOperation];
+            return;
+        }
+    }
+    for(NSString *queueId in _operationQueues) {
+        queue = [_operationQueues objectForKey:queueId];
+        for(TRVSURLSessionOperation *operation in queue.operations) {
+            if([operation uploadId] == uploadId) {
+                [operation completeOperation];
+                return;
+            }
+        }
+        if(queue.operationCount == 0) {
+            [_operationQueues removeObjectForKey: queueId];
+        }
+    }
 }
 
 - (void)_sendEventWithName:(NSString *)eventName body:(id)body {
@@ -194,11 +219,7 @@ RCT_EXPORT_METHOD(getFileInfo:(NSString *)path resolve:(RCTPromiseResolveBlock)r
 
 - (void)removeUpload: (NSString *)uploadId {
     [_uploadIds removeObject:uploadId];
-    TRVSURLSessionOperation *operation = _operations[uploadId];
-    if(operation){
-        [operation completeOperation];
-    }
-    [_operations removeObjectForKey:uploadId];
+    [self clearOperation:uploadId];
     NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
     [defaults removeObjectForKey:uploadId];
     [defaults setObject:[_uploadIds array] forKey:@"backgroundUploads"];
@@ -271,7 +292,6 @@ RCT_EXPORT_METHOD(getFileInfo:(NSString *)path resolve:(RCTPromiseResolveBlock)r
     }
     
     TRVSURLSessionOperation *operation;
-    
     if ([uploadType isEqualToString:@"multipart"]) {
         NSString *uuidStr = [[NSUUID UUID] UUIDString];
         [request setValue:[NSString stringWithFormat:@"multipart/form-data; boundary=%@", uuidStr] forHTTPHeaderField:@"Content-Type"];
@@ -290,9 +310,12 @@ RCT_EXPORT_METHOD(getFileInfo:(NSString *)path resolve:(RCTPromiseResolveBlock)r
         }
         operation = [[TRVSURLSessionOperation alloc] initWithSession:[self urlSession] uploadId:uploadId request:request fromFileUrl:[NSURL URLWithString:fileURI]];
     }
-    [_operations setObject:operation forKey:uploadId];
+
     [queue addOperation:operation];
-    NSLog(@"Request: %@ | %@", requestUrl.absoluteString, uploadId);
+    
+    NSLog(@"Request: %@ | %@ | %p", requestUrl.absoluteString, uploadId, queue);
+    NSLog(@"Pending in queue: %lu", queue.operationCount);
+
 }
 
 /*
@@ -412,7 +435,6 @@ totalBytesExpectedToSend:(int64_t)totalBytesExpectedToSend {
     } else {
         [responseData appendData:data];
     }
-    NSLog(@"DidReceiveData: %@", dataTask.taskDescription);
 }
 
 - (void)URLSession:(NSURLSession *)session
@@ -435,12 +457,12 @@ didCompleteWithError:(NSError *)error {
         [_responsesData removeObjectForKey:@(task.taskIdentifier)];
         NSString *response = [[NSString alloc] initWithData:responseData encoding:NSUTF8StringEncoding];
         [eventData setObject:response forKey:@"responseBody"];
-        NSLog(@"Upload response for %@: %@", task.taskDescription, response);
     } else {
         [eventData setObject:[NSNull null] forKey:@"responseBody"];
     }
     
     NSLog(@"Completion handler %@: %@", uploadId, eventData);
+    
     if (error == nil) {
         [self _sendEventWithName:@"RNFileUploader-completed" body:eventData];
     } else {

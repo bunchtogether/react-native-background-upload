@@ -12,6 +12,7 @@
 - (instancetype)initWithSession:(NSURLSession *)session uploadId:(NSString *)uploadId request:(NSURLRequest *)request;
 - (instancetype)initWithSession:(NSURLSession *)session uploadId:(NSString *)uploadId request:(NSURLRequest *)request fromFileUrl:(NSURL *)fileURL;
 - (void)completeOperation;
+- (NSString *)uploadId;
 
 @property (nonatomic, strong, readonly) NSURLSessionDataTask *task;
 
