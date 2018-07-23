@@ -130,6 +130,7 @@ static NSString *BACKGROUND_SESSION_ID = @"ReactNativeBackgroundUpload";
             return;
         }
     }
+    NSMutableArray *queueIdsForRemoval = [NSMutableArray array];
     for(NSString *queueId in self.operationQueues) {
         queue = [self.operationQueues objectForKey:queueId];
         for(TRVSURLSessionOperation *operation in queue.operations) {
@@ -139,8 +140,11 @@ static NSString *BACKGROUND_SESSION_ID = @"ReactNativeBackgroundUpload";
             }
         }
         if(queue.operationCount == 0) {
-            [self.operationQueues removeObjectForKey: queueId];
+            [queueIdsForRemoval addObject: queueId];
         }
+    }
+    for(NSString *queueId in queueIdsForRemoval) {
+        [self.operationQueues removeObjectForKey: queueId];
     }
     NSLog(@"No operation %@", uploadId);
 }
@@ -232,6 +236,9 @@ RCT_EXPORT_METHOD(getFileInfo:(NSString *)path resolve:(RCTPromiseResolveBlock)r
 }
 
 - (void)removeUpload: (NSString *)uploadId {
+    if(!uploadId) {
+        return;
+    }
     [self.uploadIds removeObject:uploadId];
     [self clearOperation:uploadId];
     NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
@@ -413,7 +420,9 @@ totalBytesExpectedToSend:(int64_t)totalBytesExpectedToSend {
     {
         progress = 100.0 * (float)totalBytesSent / (float)totalBytesExpectedToSend;
     }
-    [self sendEventWithName:@"RNFileUploader-progress" body:@{ @"id": task.taskDescription, @"progress": [NSNumber numberWithFloat:progress] }];
+    if(self.bridge) {
+         [self sendEventWithName:@"RNFileUploader-progress" body:@{ @"id": task.taskDescription, @"progress": [NSNumber numberWithFloat:progress] }];
+    }
     NSLog(@"Progress: %@, %@", [NSNumber numberWithFloat:progress], task.taskDescription);
 }
 
@@ -458,14 +467,18 @@ didCompleteWithError:(NSError *)error {
     NSLog(@"Completion handler %@: %@", uploadId, eventData);
     
     if (error == nil) {
-        [self sendEventWithName:@"RNFileUploader-completed" body:eventData];
+        if(self.bridge) {
+            [self sendEventWithName:@"RNFileUploader-completed" body:eventData];
+        }
     } else {
         NSLog(@"Upload error for %@: %@", uploadId, error.localizedDescription);
         [eventData setObject:error.localizedDescription forKey:@"error"];
-        if (error.code == NSURLErrorCancelled) {
-            [self sendEventWithName:@"RNFileUploader-cancelled" body:eventData];
-        } else {
-            [self sendEventWithName:@"RNFileUploader-error" body:eventData];
+        if(self.bridge) {
+            if (error.code == NSURLErrorCancelled) {
+                [self sendEventWithName:@"RNFileUploader-cancelled" body:eventData];
+            } else {
+                [self sendEventWithName:@"RNFileUploader-error" body:eventData];
+            }
         }
     }
     
