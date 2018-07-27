@@ -201,7 +201,7 @@ public class UploaderModule extends ReactContextBaseJavaModule {
 
     //   ReadableMap parameters = options.getMap("parameters");
     //   ReadableMapKeySetIterator keys = parameters.keySetIterator();
-      
+
     //   while (keys.hasNextKey()) {
     //     String key = keys.nextKey();
     //     if (parameters.getType(key) != ReadableType.String || parameters.getType(key) != ReadableType.Boolean) {
@@ -258,7 +258,7 @@ public class UploaderModule extends ReactContextBaseJavaModule {
    */
   @ReactMethod
   public void cancelUpload(String cancelUploadId, final Promise promise) {
-    if (!(cancelUploadId instanceof String)) {
+    if (cancelUploadId == null) {
       promise.reject(new IllegalArgumentException("Upload ID must be a string"));
       return;
     }
@@ -276,6 +276,9 @@ public class UploaderModule extends ReactContextBaseJavaModule {
     public static final int PRIORITY = 1;
     public String options;
     private boolean jobInProgress = false;
+
+    UploadStatusDelegate statusDelegate;
+
     public ProcessJob(JSONObject options) {
       // This job requires network connectivity,
       // and should be persisted in case the application exits before job is completed.
@@ -287,14 +290,14 @@ public class UploaderModule extends ReactContextBaseJavaModule {
     }
     @Override
     public void onAdded() {
-     Log.d(TAG, String.format("ADDED JOB %s", options));
+     Log.d(TAG, String.format("ON ADDED %s", options));
     }
     @Override
     public void onRun() throws Throwable {
       // Job logic goes here. In this example, the network call to post to Twitter is done here.
       // All work done here should be synchronous, a job is removed from the queue once 
       // onRun() finishes.
-      Log.d(TAG, String.format("STARTING JOB %s", options));
+      Log.d(TAG, String.format("ON RUN %s", options));
       startUploadJob(options);
       jobInProgress = true;
       while (jobInProgress) {
@@ -313,6 +316,7 @@ public class UploaderModule extends ReactContextBaseJavaModule {
     }
     @Override
     protected void onCancel(@CancelReason int cancelReason, @Nullable Throwable throwable) {
+        Log.d(TAG, String.format("ON CANCEL %s", options));
         // Job has exceeded retry attempts or shouldReRunOnThrowable() has decided to cancel.
     } 
 
@@ -320,126 +324,127 @@ public class UploaderModule extends ReactContextBaseJavaModule {
       getInstance().getReactApplicationContext().getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class).emit("RNFileUploader-" + eventName, params);
     }
 
-  // Trigger the request
+    // Trigger the request
     public void startUploadJob(String jobOptions) throws JSONException {
 
       Utils utils = new Utils();
       JSONObject options = new JSONObject(jobOptions);
       Log.d(TAG, String.format("RUNNING JOB %s", options.toString()));
 
-    WritableMap notification = new WritableNativeMap();
-    notification.putBoolean("enabled", true);
+      WritableMap notification = new WritableNativeMap();
+      notification.putBoolean("enabled", true);
 
-    if (options.has("notification") && options.getJSONObject("notification").has("enabled")) {
-      notification.putBoolean("enabled", options.getJSONObject("notification").getBoolean("enabled"));
-    }
-
-    String url = options.getString("url");
-    String filePath = options.has("path") ? options.getString("path") : "";
-    String method = options.has("method") && options.get("method") == ReadableType.String ? options.getString("method") : "POST";
-    final String customUploadId = options.getString("customUploadId");
-
-    try {
-      UploadStatusDelegate statusDelegate = new UploadStatusDelegate() {
-        @Override
-        public void onProgress(Context context, UploadInfo uploadInfo) {
-          WritableMap params = Arguments.createMap();
-          params.putString("id", customUploadId != null ? customUploadId : uploadInfo.getUploadId());
-          params.putInt("progress", uploadInfo.getProgressPercent()); //0-100
-          sendEvent("progress", params);
-        }
-
-        @Override
-        public void onError(Context context, UploadInfo uploadInfo, final ServerResponse serverResponse, Exception exception) {
-          WritableMap params = Arguments.createMap();
-          params.putString("id", customUploadId != null ? customUploadId : uploadInfo.getUploadId());
-          Log.d(TAG, String.format("ERROR IN JOB %s", customUploadId), exception);
-          /*
-          if (exception != null)
-              params.putString("error", exception.getMessage());
-          else
-              Log.e(TAG, "onError has no exception, server response is " + serverResponse.getBodyAsString());
-          */
-          sendEvent("error", params);
-          jobInProgress = false;
-        }
-
-        @Override
-        public void onCompleted(Context context, UploadInfo uploadInfo, ServerResponse serverResponse) {
-          WritableMap params = Arguments.createMap();
-          params.putString("id", customUploadId != null ? customUploadId : uploadInfo.getUploadId());
-          params.putInt("responseCode", serverResponse.getHttpCode());
-          params.putString("responseBody", serverResponse.getBodyAsString());
-          sendEvent("completed", params);
-          jobInProgress = false;
-          Log.d(TAG, String.format("completed JOB %s", customUploadId));
-        }
-
-        @Override
-        public void onCancelled(Context context, UploadInfo uploadInfo) {
-          WritableMap params = Arguments.createMap();
-          params.putString("id", customUploadId != null ? customUploadId : uploadInfo.getUploadId());
-          sendEvent("cancelled", params);
-          jobInProgress = false;
-          Log.d(TAG, String.format("cancelled JOB %s", customUploadId));
-        }
-      };
-
-      HttpUploadRequest<?> request;
-      String requestType = "raw";
-      if (options.has("type")) {
-        requestType = options.getString("type");
+      if (options.has("notification") && options.getJSONObject("notification").has("enabled")) {
+        notification.putBoolean("enabled", options.getJSONObject("notification").getBoolean("enabled"));
       }
 
-      if (requestType.equals("raw")) {
+      String url = options.getString("url");
+      String filePath = options.has("path") ? options.getString("path") : "";
+      String method = options.has("method") ? options.getString("method") : "POST";
+      final String customUploadId = options.getString("customUploadId");
+
+      try {
+        HttpUploadRequest<?> request;
+        String requestType = "raw";
+        if (options.has("type")) {
+          requestType = options.getString("type");
+        }
+
+        if (requestType.equals("raw")) {
           request = new BinaryUploadRequest(getInstance().getReactApplicationContext(), customUploadId, url)
-                .setFileToUpload(filePath);
-      } else if (requestType.equals("json")) {
-        // Process JSON request here
+                  .setFileToUpload(filePath);
+        } else if (requestType.equals("json")) {
+          // Process JSON request here
           request = new HttpJsonRequest(getInstance().getReactApplicationContext(), customUploadId, url)
-                .setMethod(method)
-                .addHeader("Content-Type", "application/json");
-      } else {
+                  .setMethod(method)
+                  .addHeader("Content-Type", "application/json");
+        } else {
           request = new MultipartUploadRequest(getInstance().getReactApplicationContext(), customUploadId, url)
-                .addFileToUpload(filePath, options.getString("field"));
-      }
-
-
-      request.setMethod(method)
-        .setMaxRetries(2)
-        .setDelegate(statusDelegate);
-
-      if (notification.getBoolean("enabled")) {
-        request.setNotificationConfig(new UploadNotificationConfig());
-      }
-
-      if (options.has("parameters")) {
-        ReadableMap parameters = utils.convertJsonToMap(options.getJSONObject("parameters"));
-        ReadableMapKeySetIterator keys = parameters.keySetIterator();
-        while (keys.hasNextKey()) {
-          String key = keys.nextKey();
-          request.addParameter(key, parameters.getString(key));
+                  .addFileToUpload(filePath, options.getString("field"));
         }
-      }
 
-      if (options.has("headers")) {
-        ReadableMap headers = utils.convertJsonToMap(options.getJSONObject("headers"));
-        ReadableMapKeySetIterator keys = headers.keySetIterator();
-        while (keys.hasNextKey()) {
-          String key = keys.nextKey();
-          request.addHeader(key, headers.getString(key));
+        if (statusDelegate == null) {
+          statusDelegate = new UploadStatusDelegate() {
+            @Override
+            public void onProgress(Context context, UploadInfo uploadInfo) {
+              WritableMap params = Arguments.createMap();
+              params.putString("id", uploadInfo.getUploadId());
+              params.putInt("progress", uploadInfo.getProgressPercent()); //0-100
+              sendEvent("progress", params);
+            }
+
+            @Override
+            public void onError(Context context, UploadInfo uploadInfo, final ServerResponse serverResponse, Exception exception) {
+              WritableMap params = Arguments.createMap();
+              params.putString("id", uploadInfo.getUploadId());
+              Log.d(TAG, String.format("ERROR IN JOB %s", uploadInfo.getUploadId()), exception);
+              if (exception != null)
+                params.putString("error", exception.getMessage());
+              else
+                Log.e(TAG, "onError has no exception, server response is " + serverResponse.getBodyAsString());
+              sendEvent("error", params);
+              jobInProgress = false;
+            }
+
+            @Override
+            public void onCompleted(Context context, UploadInfo uploadInfo, ServerResponse serverResponse) {
+              WritableMap params = Arguments.createMap();
+              params.putString("id", uploadInfo.getUploadId());
+              params.putInt("responseCode", serverResponse.getHttpCode());
+              params.putString("responseBody", serverResponse.getBodyAsString());
+              sendEvent("completed", params);
+              jobInProgress = false;
+              Log.d(TAG, String.format("COMPLETED JOB %s", uploadInfo.getUploadId()));
+            }
+
+            @Override
+            public void onCancelled(Context context, UploadInfo uploadInfo) {
+              WritableMap params = Arguments.createMap();
+              params.putString("id", uploadInfo.getUploadId());
+              sendEvent("cancelled", params);
+              jobInProgress = false;
+              Log.d(TAG, String.format("CANCELLED JOB %s", uploadInfo.getUploadId()));
+            }
+          };
         }
-      }
+        request.setMethod(method)
+                .setMaxRetries(2)
+                .setDelegate(statusDelegate);
 
-      // String uploadId = request.startUpload();
-      // promise.resolve(uploadId);
-      String uploadId = request.startUpload();
-      Log.d(TAG, String.format("STARTED JOB %s", uploadId));
-    } catch (Exception exc) {
-      Log.e(TAG, exc.getMessage(), exc);
-      // promise.reject(exc);
+        if (notification.getBoolean("enabled")) {
+          request.setNotificationConfig(new UploadNotificationConfig());
+        }
+
+        if (options.has("parameters")) {
+          if (requestType.equals("json")) {
+            request.addParameter("body", options.getString("parameters"));
+          } else {
+            ReadableMap parameters = utils.convertJsonToMap(options.getJSONObject("parameters"));
+            ReadableMapKeySetIterator keys = parameters.keySetIterator();
+            while (keys.hasNextKey()) {
+              String key = keys.nextKey();
+              request.addParameter(key, parameters.getString(key));
+            }
+          }
+        }
+
+        if (options.has("headers")) {
+          ReadableMap headers = utils.convertJsonToMap(options.getJSONObject("headers"));
+          ReadableMapKeySetIterator keys = headers.keySetIterator();
+          while (keys.hasNextKey()) {
+            String key = keys.nextKey();
+            request.addHeader(key, headers.getString(key));
+          }
+        }
+
+        // promise.resolve(uploadId);
+        String uploadId = request.startUpload();
+        Log.d(TAG, String.format("STARTED JOB %s", uploadId));
+      } catch (Exception exc) {
+        Log.e(TAG, exc.getMessage(), exc);
+        // promise.reject(exc);
+      }
     }
-  }
   }
 
 
