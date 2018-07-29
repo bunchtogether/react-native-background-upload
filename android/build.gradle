@@ -51,7 +51,7 @@ dependencies {
     */
     implementation 'com.facebook.react:react-native:+'
     // compile 'net.gotev:uploadservice-okhttp:3.2.3'
-    implementation 'com.github.bunchtogether:android-upload-service:def1eb7fffbb46fbf66c8e1fc276b91d9c9c5220'
+    implementation 'com.github.bunchtogether:android-upload-service:c67b6bee2d5c7ba8e356b3635c6b6e1f6100b65d'
     implementation 'com.birbit:android-priority-jobqueue:2.0.1'
     implementation 'com.google.code.gson:gson:2.8.5'
 }
