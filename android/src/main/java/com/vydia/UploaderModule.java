@@ -332,7 +332,7 @@ public class UploaderModule extends ReactContextBaseJavaModule {
       Log.d(TAG, String.format("RUNNING JOB %s", options.toString()));
 
       WritableMap notification = new WritableNativeMap();
-      notification.putBoolean("enabled", true);
+      notification.putBoolean("enabled", false);
 
       if (options.has("notification") && options.getJSONObject("notification").has("enabled")) {
         notification.putBoolean("enabled", options.getJSONObject("notification").getBoolean("enabled"));
