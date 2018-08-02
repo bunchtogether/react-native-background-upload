@@ -109,10 +109,12 @@ static NSString *BACKGROUND_SESSION_ID = @"ReactNativeBackgroundUpload";
 {
     [self.session invalidateAndCancel];
     [self.mainOperationQueue cancelAllOperations];
-    NSOperationQueue *queue;
-    for(NSString *queueId in self.operationQueues) {
-        queue = [self.operationQueues objectForKey:queueId];
-        [queue cancelAllOperations];
+    @synchronized(self.operationQueues) {
+        NSOperationQueue *queue;
+        for(NSString *queueId in self.operationQueues) {
+            queue = [self.operationQueues objectForKey:queueId];
+            [queue cancelAllOperations];
+        }
     }
     self.responsesData = nil;
     self.mainOperationQueue = nil;
@@ -129,27 +131,30 @@ static NSString *BACKGROUND_SESSION_ID = @"ReactNativeBackgroundUpload";
             return;
         }
     }
-    NSMutableArray *queueIdsForRemoval = [NSMutableArray array];
-    for(NSString *queueId in self.operationQueues) {
-        queue = [self.operationQueues objectForKey:queueId];
-        for(TRVSURLSessionOperation *operation in queue.operations) {
-            if([operation uploadId] == uploadId) {
-                [operation completeOperation];
-                return;
+    @synchronized(self.operationQueues) {
+        NSMutableArray *queueIdsForRemoval = [NSMutableArray array];
+        for(NSString *queueId in self.operationQueues) {
+            queue = [self.operationQueues objectForKey:queueId];
+            for(TRVSURLSessionOperation *operation in queue.operations) {
+                if([operation uploadId] == uploadId) {
+                    [operation completeOperation];
+                    return;
+                }
+            }
+            if(queue.operationCount == 0) {
+                [queueIdsForRemoval addObject: queueId];
             }
         }
-        if(queue.operationCount == 0) {
-            [queueIdsForRemoval addObject: queueId];
+        for(NSString *queueId in queueIdsForRemoval) {
+            [self.operationQueues removeObjectForKey: queueId];
         }
-    }
-    for(NSString *queueId in queueIdsForRemoval) {
-        [self.operationQueues removeObjectForKey: queueId];
     }
     NSLog(@"No operation %@", uploadId);
 }
 
 - (NSArray<NSString *> *)supportedEvents {
     return @[
+             @"RNFileUploader-initialize",
              @"RNFileUploader-progress",
              @"RNFileUploader-error",
              @"RNFileUploader-cancelled",
@@ -238,11 +243,13 @@ RCT_EXPORT_METHOD(getFileInfo:(NSString *)path resolve:(RCTPromiseResolveBlock)r
     if(!uploadId) {
         return;
     }
-    [self.uploadIds removeObject:uploadId];
+    @synchronized(self.uploadIds) {
+        [self.uploadIds removeObject:uploadId];
+        NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
+        [defaults removeObjectForKey:uploadId];
+        [defaults setObject:[self.uploadIds array] forKey:@"backgroundUploads"];
+    }
     [self clearOperation:uploadId];
-    NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
-    [defaults removeObjectForKey:uploadId];
-    [defaults setObject:[self.uploadIds array] forKey:@"backgroundUploads"];
 }
 
 - (void)enqueueUpload: (NSString *)uploadId options:(NSDictionary *)options {
@@ -259,11 +266,13 @@ RCT_EXPORT_METHOD(getFileInfo:(NSString *)path resolve:(RCTPromiseResolveBlock)r
     NSOperationQueue *queue = self.mainOperationQueue;
     
     if(queueId) {
-        queue = self.operationQueues[queueId];
-        if(!queue) {
-            queue = [[NSOperationQueue alloc] init];
-            queue.maxConcurrentOperationCount = 1;
-            [self.operationQueues setObject:queue forKey:queueId];
+        @synchronized(self.operationQueues) {
+            queue = self.operationQueues[queueId];
+            if(!queue) {
+                queue = [[NSOperationQueue alloc] init];
+                queue.maxConcurrentOperationCount = 1;
+                [self.operationQueues setObject:queue forKey:queueId];
+            }
         }
     }
     
@@ -310,7 +319,7 @@ RCT_EXPORT_METHOD(getFileInfo:(NSString *)path resolve:(RCTPromiseResolveBlock)r
             return [self removeUpload:uploadId];
         }
     }
-    
+    NSMutableDictionary *eventData = [NSMutableDictionary dictionaryWithObjectsAndKeys:uploadId, @"id", nil];
     TRVSURLSessionOperation *operation;
     if ([uploadType isEqualToString:@"multipart"]) {
         NSString *uuidStr = [[NSUUID UUID] UUIDString];
@@ -318,19 +327,27 @@ RCT_EXPORT_METHOD(getFileInfo:(NSString *)path resolve:(RCTPromiseResolveBlock)r
         NSData *httpBody = [self createBodyWithBoundary:uuidStr path:fileURI parameters: parameters fieldName:fieldName];
         [request setHTTPBody: httpBody];
         operation = [[TRVSURLSessionOperation alloc] initWithSession:self.session uploadId:uploadId request:request];
+        [eventData setObject:[NSNumber numberWithInteger:httpBody.length] forKey:@"size"];
     } else if ([uploadType isEqualToString:@"json"]) {
         [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
         NSData *httpBody = [VydiaRNFileUploader normalizedJSONRequestBody:parameters];
         [request setHTTPBody:httpBody];
         operation = [[TRVSURLSessionOperation alloc] initWithSession:self.session uploadId:uploadId request:request];
+        [eventData setObject:[NSNumber numberWithInteger:httpBody.length] forKey:@"size"];
     } else {
         if (parameters.count > 0) {
             RCTLogError(@"RN Uploader: Parameters supported only in 'multipart' and 'json' type");
             return [self removeUpload:uploadId];
         }
         operation = [[TRVSURLSessionOperation alloc] initWithSession:self.session uploadId:uploadId request:request fromFileUrl:[NSURL URLWithString:fileURI]];
+        [eventData setObject:[NSNumber numberWithInteger:[[NSFileManager defaultManager] attributesOfItemAtPath:[[NSURL URLWithString:fileURI] path] error:nil].fileSize] forKey:@"size"];
     }
-    
+    if(queueId) {
+        [eventData setObject:queueId forKey:@"queueId"];
+    }
+    if(self.bridge) {
+        [self sendEventWithName:@"RNFileUploader-initialize" body:eventData];
+    }
     [queue addOperation:operation];
     
     NSLog(@"Request: %@ | %@ | %p", requestUrl.absoluteString, uploadId, queue);
@@ -351,14 +368,14 @@ RCT_EXPORT_METHOD(getFileInfo:(NSString *)path resolve:(RCTPromiseResolveBlock)r
  */
 RCT_EXPORT_METHOD(startUpload:(NSDictionary *)options resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)
 {
-    NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
     NSString *uploadId = [[[NSUUID UUID] UUIDString] lowercaseString];
-    [defaults setObject:options forKey:uploadId];
-    [self.uploadIds addObject:uploadId];
-    [defaults setObject:[self.uploadIds array] forKey:@"backgroundUploads"];
-    
+    @synchronized(self.uploadIds) {
+        NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
+        [defaults setObject:options forKey:uploadId];
+        [self.uploadIds addObject:uploadId];
+        [defaults setObject:[self.uploadIds array] forKey:@"backgroundUploads"];
+    }
     [self enqueueUpload:uploadId options:options];
-    
     resolve(uploadId);
 }
 
@@ -480,13 +497,15 @@ didCompleteWithError:(NSError *)error {
                 }
             }
         }
-        for(NSString *queueId in self.operationQueues) {
-            queue = [self.operationQueues objectForKey:queueId];
-            for(TRVSURLSessionOperation *operation in queue.operations) {
-                if([operation uploadId] == uploadId) {
-                    if([operation attempts] < 3) {
-                        [operation retry];
-                        return;
+        @synchronized(self.operationQueues) {
+            for(NSString *queueId in self.operationQueues) {
+                queue = [self.operationQueues objectForKey:queueId];
+                for(TRVSURLSessionOperation *operation in queue.operations) {
+                    if([operation uploadId] == uploadId) {
+                        if([operation attempts] < 3) {
+                            [operation retry];
+                            return;
+                        }
                     }
                 }
             }
