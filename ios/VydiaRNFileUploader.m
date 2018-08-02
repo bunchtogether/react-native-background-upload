@@ -478,6 +478,26 @@ didCompleteWithError:(NSError *)error {
         }
     } else {
         NSLog(@"Upload error for %@: %@", uploadId, error.localizedDescription);
+        NSOperationQueue *queue = self.mainOperationQueue;
+        for(TRVSURLSessionOperation *operation in queue.operations) {
+            if([operation uploadId] == uploadId) {
+                if([operation attempts] < 3) {
+                    [operation retry];
+                    return;
+                }
+            }
+        }
+        for(NSString *queueId in self.operationQueues) {
+            queue = [self.operationQueues objectForKey:queueId];
+            for(TRVSURLSessionOperation *operation in queue.operations) {
+                if([operation uploadId] == uploadId) {
+                    if([operation attempts] < 3) {
+                        [operation retry];
+                        return;
+                    }
+                }
+            }
+        }
         [eventData setObject:error.localizedDescription forKey:@"error"];
         if(self.bridge) {
             if (error.code == NSURLErrorCancelled) {
@@ -485,6 +505,15 @@ didCompleteWithError:(NSError *)error {
             } else {
                 [self sendEventWithName:@"RNFileUploader-error" body:eventData];
             }
+        }
+        if (error.code != NSURLErrorCancelled) {
+            NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
+            NSDictionary *options = [defaults dictionaryForKey: uploadId];
+            [self clearOperation:uploadId];
+            if(options) {
+                [self enqueueUpload:uploadId options:options];
+            }
+            return;
         }
     }
     

@@ -12,6 +12,14 @@
 BLOCK(); \
 [self didChangeValueForKey:KEYPATH];
 
+@interface TRVSURLSessionOperation ()
+@property (nonatomic, strong) NSURLSession *session;
+@property (nonatomic, strong) NSURLRequest *request;
+@property (nonatomic, strong) NSURL *fileURL;
+@property (nonatomic, strong) NSURLSessionUploadTask *task;
+@property (nonatomic, assign) int attempt;
+@end
+
 @implementation TRVSURLSessionOperation {
     BOOL _finished;
     BOOL _executing;
@@ -19,14 +27,17 @@ BLOCK(); \
 
 - (instancetype)initWithSession:(NSURLSession *)session uploadId:(NSString *)uploadId request:(NSURLRequest *)request {
     if (self = [super init]) {
-        _task = [session uploadTaskWithRequest:request fromData:nil];
+        self.request = request;
+        self.session = session;
+        self.task = [session uploadTaskWithRequest:request fromData:nil];
         // Retry a failed background task if initial creation did not succeed
-        if (!_task && session.configuration.identifier) {
-            for (NSUInteger attempts = 0; !_task && attempts < 3; attempts++) {
-                _task = [session uploadTaskWithRequest:request fromData:nil];
+        if (!self.task && session.configuration.identifier) {
+            for (NSUInteger attempts = 0; !self.task && attempts < 3; attempts++) {
+                self.task = [session uploadTaskWithRequest:request fromData:nil];
             }
         }
-        _task.taskDescription = uploadId;
+        self.attempt = 0;
+        self.task.taskDescription = uploadId;
         _executing = NO;
         _finished = NO;
     }
@@ -34,23 +45,45 @@ BLOCK(); \
 }
 
 - (NSString *)uploadId {
-    return _task.taskDescription;
+    return self.task.taskDescription;
 }
 
 - (instancetype)initWithSession:(NSURLSession *)session uploadId:(NSString *)uploadId request:(NSURLRequest *)request fromFileUrl:(NSURL *)fileURL {
     if (self = [super init]) {
-        _task = [session uploadTaskWithRequest:request fromFile:fileURL];
+        self.request = request;
+        self.fileURL = fileURL;
+        self.session = session;
+        self.task = [session uploadTaskWithRequest:request fromFile:fileURL];
         // Retry a failed background task if initial creation did not succeed
-        if (!_task && session.configuration.identifier) {
-            for (NSUInteger attempts = 0; !_task && attempts < 3; attempts++) {
-                _task = [session uploadTaskWithRequest:request fromFile:fileURL];
+        if (!self.task && session.configuration.identifier) {
+            for (NSUInteger attempts = 0; !self.task && attempts < 3; attempts++) {
+                self.task = [session uploadTaskWithRequest:request fromFile:fileURL];
             }
         }
-        _task.taskDescription = uploadId;
+        self.attempt = 0;
+        self.task.taskDescription = uploadId;
         _executing = NO;
         _finished = NO;
     }
     return self;
+}
+
+- (void)retry {
+    self.attempt++;
+    NSLog(@"Retry attempt %d", self.attempt);
+    NSString *uploadId = self.task.taskDescription;
+    [self.task cancel];
+    if(self.fileURL && self.request) {
+        self.task = [self.session uploadTaskWithRequest:self.request fromFile:self.fileURL];
+    } else if(self.request) {
+        self.task = [self.session uploadTaskWithRequest:self.request fromData:nil];
+    }
+    self.task.taskDescription = uploadId;
+    [self.task resume];
+}
+
+- (int)attempts {
+    return self.attempt;
 }
 
 - (void)cancel {
@@ -64,7 +97,7 @@ BLOCK(); \
         return;
     }
     TRVSKVOBlock(@"isExecuting", ^{
-        NSLog(@"isExecuting %@", _task.taskDescription);
+        NSLog(@"isExecuting %@", self.task.taskDescription);
         [self.task resume];
         _executing = YES;
     });
