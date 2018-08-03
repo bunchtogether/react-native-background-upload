@@ -14,8 +14,8 @@
 - (void)completeOperation;
 - (void)retry;
 - (int)attempts;
-- (NSString *)uploadId;
 
+@property (nonatomic, copy) NSString *uploadId;
 @property (nonatomic, strong, readonly) NSURLSessionDataTask *task;
 
 @end

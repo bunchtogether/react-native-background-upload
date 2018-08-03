@@ -6,7 +6,7 @@
 #import <Photos/Photos.h>
 #import "TRVSQueuedURLSesssion.h"
 #import "VydiaRNFileUploader.h"
-
+#import "BackgroundTransferAppDelegate.h"
 
 @interface VydiaRNFileUploader ()
 
@@ -90,7 +90,7 @@ static NSString *BACKGROUND_SESSION_ID = @"ReactNativeBackgroundUpload";
         config.requestCachePolicy = NSURLRequestReloadIgnoringLocalCacheData;
         config.URLCache = nil;
         config.HTTPCookieAcceptPolicy = NSHTTPCookieAcceptPolicyAlways;
-        config.timeoutIntervalForResource = 30.0;
+        config.timeoutIntervalForResource = 600.0;
         self.session = [NSURLSession sessionWithConfiguration:config delegate:self delegateQueue:nil];
         self.session.sessionDescription = BACKGROUND_SESSION_ID;
         for(NSString *uploadId in ids){
@@ -126,7 +126,7 @@ static NSString *BACKGROUND_SESSION_ID = @"ReactNativeBackgroundUpload";
 - (void) clearOperation:(NSString *)uploadId {
     NSOperationQueue *queue = self.mainOperationQueue;
     for(TRVSURLSessionOperation *operation in queue.operations) {
-        if([operation uploadId] == uploadId) {
+        if(operation.uploadId == uploadId) {
             [operation completeOperation];
             return;
         }
@@ -136,7 +136,7 @@ static NSString *BACKGROUND_SESSION_ID = @"ReactNativeBackgroundUpload";
         for(NSString *queueId in self.operationQueues) {
             queue = [self.operationQueues objectForKey:queueId];
             for(TRVSURLSessionOperation *operation in queue.operations) {
-                if([operation uploadId] == uploadId) {
+                if(operation.uploadId == uploadId) {
                     [operation completeOperation];
                     return;
                 }
@@ -490,7 +490,7 @@ didCompleteWithError:(NSError *)error {
         NSLog(@"Upload error for %@: %@", uploadId, error.localizedDescription);
         NSOperationQueue *queue = self.mainOperationQueue;
         for(TRVSURLSessionOperation *operation in queue.operations) {
-            if([operation uploadId] == uploadId) {
+            if(operation.uploadId == uploadId) {
                 if([operation attempts] < 3) {
                     [operation retry];
                     return;
@@ -501,7 +501,7 @@ didCompleteWithError:(NSError *)error {
             for(NSString *queueId in self.operationQueues) {
                 queue = [self.operationQueues objectForKey:queueId];
                 for(TRVSURLSessionOperation *operation in queue.operations) {
-                    if([operation uploadId] == uploadId) {
+                    if(operation.uploadId == uploadId) {
                         if([operation attempts] < 3) {
                             [operation retry];
                             return;
@@ -528,12 +528,23 @@ didCompleteWithError:(NSError *)error {
             return;
         }
     }
-    
     [self removeUpload:uploadId];
-    
+}
+
+- (void)URLSessionDidFinishEventsForBackgroundURLSession:(NSURLSession *)session
+{
+    dispatch_async(dispatch_get_main_queue(), ^{
+        BackgroundTransferAppDelegate *appDelegate = (BackgroundTransferAppDelegate *)[[UIApplication sharedApplication] delegate];
+        if (appDelegate.sessionCompletionHandler) {
+            void (^completionHandler)() = appDelegate.sessionCompletionHandler;
+            appDelegate.sessionCompletionHandler = nil;
+            completionHandler();
+        }
+    });
 }
 
 @end
+
 
 
 
