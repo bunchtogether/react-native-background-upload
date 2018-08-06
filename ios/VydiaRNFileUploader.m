@@ -465,6 +465,11 @@ didCompleteWithError:(NSError *)error {
     NSHTTPURLResponse *response = (NSHTTPURLResponse *)uploadTask.response;
     NSString *uploadId = task.taskDescription;
     
+    if (!uploadId) {
+        NSLog(@"No uploadId in task");
+        return;
+    }
+    
     if (response) {
         NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse*) response;
         [eventData setObject:[NSNumber numberWithInteger:httpResponse.statusCode] forKey:@"responseCode"];

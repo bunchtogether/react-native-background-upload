@@ -7,8 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		722F309621150A3400C7176B /* BackgroundTransferAppDelegate.m in Sources */ = {isa = PBXBuildFile; fileRef = 722F309521150A3400C7176B /* BackgroundTransferAppDelegate.m */; };
 		725D56EE20F7C84C0070A9BE /* TRVSQueuedURLSesssion.m in Sources */ = {isa = PBXBuildFile; fileRef = 725D56ED20F7C84C0070A9BE /* TRVSQueuedURLSesssion.m */; };
+		72679A792117871B0042C743 /* BackgroundTransferAppDelegate.m in Sources */ = {isa = PBXBuildFile; fileRef = 72679A782117871B0042C743 /* BackgroundTransferAppDelegate.m */; };
 		DCC748851E044F8700EA453E /* VydiaRNFileUploader.m in Sources */ = {isa = PBXBuildFile; fileRef = DCC748841E044F8700EA453E /* VydiaRNFileUploader.m */; };
 /* End PBXBuildFile section */
 
@@ -26,10 +26,10 @@
 
 /* Begin PBXFileReference section */
 		014A3B5C1C6CF33500B6D375 /* libVydiaRNFileUploader.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libVydiaRNFileUploader.a; sourceTree = BUILT_PRODUCTS_DIR; };
-		722F309421150A2500C7176B /* BackgroundTransferAppDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BackgroundTransferAppDelegate.h; sourceTree = "<group>"; };
-		722F309521150A3400C7176B /* BackgroundTransferAppDelegate.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = BackgroundTransferAppDelegate.m; sourceTree = "<group>"; };
 		725D56EC20F7C8310070A9BE /* TRVSQueuedURLSesssion.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = TRVSQueuedURLSesssion.h; sourceTree = "<group>"; };
 		725D56ED20F7C84C0070A9BE /* TRVSQueuedURLSesssion.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = TRVSQueuedURLSesssion.m; sourceTree = "<group>"; };
+		72679A77211786DF0042C743 /* BackgroundTransferAppDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BackgroundTransferAppDelegate.h; sourceTree = "<group>"; };
+		72679A782117871B0042C743 /* BackgroundTransferAppDelegate.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = BackgroundTransferAppDelegate.m; sourceTree = "<group>"; };
 		72C2B2C321025F5700DDEA3F /* VydiaRNFileUploader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = VydiaRNFileUploader.h; sourceTree = "<group>"; };
 		DCC748841E044F8700EA453E /* VydiaRNFileUploader.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = VydiaRNFileUploader.m; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -48,8 +48,8 @@
 		014A3B531C6CF33500B6D375 = {
 			isa = PBXGroup;
 			children = (
-				722F309421150A2500C7176B /* BackgroundTransferAppDelegate.h */,
-				722F309521150A3400C7176B /* BackgroundTransferAppDelegate.m */,
+				72679A77211786DF0042C743 /* BackgroundTransferAppDelegate.h */,
+				72679A782117871B0042C743 /* BackgroundTransferAppDelegate.m */,
 				725D56EC20F7C8310070A9BE /* TRVSQueuedURLSesssion.h */,
 				725D56ED20F7C84C0070A9BE /* TRVSQueuedURLSesssion.m */,
 				72C2B2C321025F5700DDEA3F /* VydiaRNFileUploader.h */,
@@ -122,7 +122,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				722F309621150A3400C7176B /* BackgroundTransferAppDelegate.m in Sources */,
+				72679A792117871B0042C743 /* BackgroundTransferAppDelegate.m in Sources */,
 				725D56EE20F7C84C0070A9BE /* TRVSQueuedURLSesssion.m in Sources */,
 				DCC748851E044F8700EA453E /* VydiaRNFileUploader.m in Sources */,
 			);
