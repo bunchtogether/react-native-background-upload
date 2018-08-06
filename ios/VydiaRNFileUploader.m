@@ -11,6 +11,7 @@
 @interface VydiaRNFileUploader ()
 
 @property (nonatomic, strong) NSMutableDictionary *responsesData;
+@property (nonatomic, strong) NSMutableDictionary *metrics;
 @property (nonatomic, strong) NSOperationQueue *mainOperationQueue;
 @property (nonatomic, strong) NSMutableOrderedSet *uploadIds;
 @property (nonatomic, strong) NSMutableDictionary *operationQueues;
@@ -75,8 +76,9 @@ static NSString *BACKGROUND_SESSION_ID = @"ReactNativeBackgroundUpload";
     self = [super init];
     if (self) {
         self.responsesData = [NSMutableDictionary dictionary];
+        self.metrics = [NSMutableDictionary dictionary];
         self.mainOperationQueue = [[NSOperationQueue alloc] init];
-        self.mainOperationQueue.maxConcurrentOperationCount = 1;
+        self.mainOperationQueue.maxConcurrentOperationCount = 10;
         self.uploadIds = [[NSMutableOrderedSet alloc] init];
         self.operationQueues = [NSMutableDictionary dictionary];
         NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
@@ -455,6 +457,18 @@ totalBytesExpectedToSend:(int64_t)totalBytesExpectedToSend {
         [responseData appendData:data];
     }
 }
+- (void)URLSession:(NSURLSession *)session
+              task:(NSURLSessionTask *)task
+didFinishCollectingMetrics:(NSURLSessionTaskMetrics *)metrics {
+    NSLog(@"didFinishCollectingMetrics");
+    NSString *uploadId = task.taskDescription;
+    if (!uploadId) {
+        NSLog(@"No uploadId in task");
+        return;
+    }
+    self.metrics[uploadId] = metrics;
+    
+}
 
 - (void)URLSession:(NSURLSession *)session
               task:(NSURLSessionTask *)task
@@ -476,13 +490,21 @@ didCompleteWithError:(NSError *)error {
     }
     
     //Add data that was collected earlier by the didReceiveData method
-    NSMutableData *responseData = self.responsesData[@(task.taskIdentifier)];
+    NSMutableData *responseData = self.responsesData[uploadId];
     if (responseData) {
-        [self.responsesData removeObjectForKey:@(task.taskIdentifier)];
+        [self.responsesData removeObjectForKey:uploadId];
         NSString *response = [[NSString alloc] initWithData:responseData encoding:NSUTF8StringEncoding];
         [eventData setObject:response forKey:@"responseBody"];
     } else {
         [eventData setObject:[NSNull null] forKey:@"responseBody"];
+    }
+    
+    NSURLSessionTaskMetrics *metrics = self.metrics[uploadId];
+    if (metrics) {
+        [self.metrics removeObjectForKey:uploadId];
+        [eventData setObject:@(metrics.taskInterval.duration) forKey:@"duration"];
+    } else {
+        [eventData setObject:[NSNull null] forKey:@"duration"];
     }
     
     NSLog(@"Completion handler %@: %@", uploadId, eventData);
@@ -524,13 +546,19 @@ didCompleteWithError:(NSError *)error {
             }
         }
         if (error.code != NSURLErrorCancelled) {
-            NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
-            NSDictionary *options = [defaults dictionaryForKey: uploadId];
-            [self clearOperation:uploadId];
-            if(options) {
-                [self enqueueUpload:uploadId options:options];
+            // If the upload was part of a named queue, cancel the remaining items on failure
+            @synchronized(self.operationQueues) {
+                NSOperationQueue *queue;
+                for(NSString *queueId in self.operationQueues) {
+                    queue = [self.operationQueues objectForKey:queueId];
+                    for(TRVSURLSessionOperation *operation in queue.operations) {
+                        if(operation.uploadId == uploadId) {
+                            NSLog(@"cancelAllOperations");
+                            [queue cancelAllOperations];
+                        }
+                    }
+                }
             }
-            return;
         }
     }
     [self removeUpload:uploadId];
