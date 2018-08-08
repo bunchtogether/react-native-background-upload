@@ -428,9 +428,7 @@ RCT_EXPORT_METHOD(getFileInfo:(NSString *)path resolve:(RCTPromiseResolveBlock)r
     [queue addOperation:operation];
     
     NSLog(@"Request: %@ | %@ | %p", requestUrl.absoluteString, uploadId, queue);
-    NSLog(@"Pending in queue: %lu", queue.operationCount);
-    NSLog(@"Reachable: %@", [self.reach isReachable] ? @"YES" : @"NO");
-    
+    NSLog(@"Pending in queue: %lu", queue.operationCount);    
 }
 
 /*
