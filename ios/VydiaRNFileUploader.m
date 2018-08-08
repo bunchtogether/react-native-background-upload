@@ -4,6 +4,7 @@
 #import <React/RCTLog.h>
 #import <React/RCTBridgeModule.h>
 #import <Photos/Photos.h>
+#import "Reachability.h"
 #import "TRVSQueuedURLSesssion.h"
 #import "VydiaRNFileUploader.h"
 #import "BackgroundTransferAppDelegate.h"
@@ -16,6 +17,8 @@
 @property (nonatomic, strong) NSMutableOrderedSet *uploadIds;
 @property (nonatomic, strong) NSMutableDictionary *operationQueues;
 @property (nonatomic, strong) NSURLSession *session;
+@property (nonatomic, strong) Reachability *reach;
+@property (nonatomic, assign) BOOL suspended;
 
 @end
 
@@ -95,6 +98,16 @@ static NSString *BACKGROUND_SESSION_ID = @"ReactNativeBackgroundUpload";
         config.timeoutIntervalForResource = 600.0;
         self.session = [NSURLSession sessionWithConfiguration:config delegate:self delegateQueue:nil];
         self.session.sessionDescription = BACKGROUND_SESSION_ID;
+        self.suspended = NO;
+        self.reach = [Reachability reachabilityForInternetConnection];
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(reachabilityChanged:)
+                                                     name:kReachabilityChangedNotification
+                                                   object:nil];
+        [self.reach startNotifier];
+        if(![self.reach isReachable]) {
+            [self pauseDownloads];
+        }
         for(NSString *uploadId in ids){
             NSDictionary *options = [defaults dictionaryForKey: uploadId];
             if(options) {
@@ -107,8 +120,70 @@ static NSString *BACKGROUND_SESSION_ID = @"ReactNativeBackgroundUpload";
     return self;
 }
 
+- (void)reachabilityChanged:(NSNotification *)notification
+{
+    if([self.reach isReachable]) {
+        [self resumeDownloads];
+    } else {
+        [self pauseDownloads];
+    }
+}
+
+- (void)pauseDownloads {
+    if(self.suspended) {
+        return;
+    }
+    NSLog(@"Uploader: pause");
+    self.suspended = YES;
+    self.mainOperationQueue.suspended = YES;
+    for(TRVSURLSessionOperation *operation in self.mainOperationQueue.operations) {
+        if([operation isExecuting] && !operation.suspended) {
+            [operation suspend];
+        }
+    }
+    @synchronized(self.operationQueues) {
+        NSOperationQueue *queue;
+        for(NSString *queueId in self.operationQueues) {
+            queue = [self.operationQueues objectForKey:queueId];
+            queue.suspended = YES;
+            for(TRVSURLSessionOperation *operation in queue.operations) {
+                if([operation isExecuting] && !operation.suspended) {
+                    [operation suspend];
+                }
+            }
+        }
+    }
+}
+
+- (void)resumeDownloads {
+    if(!self.suspended) {
+        return;
+    }
+    NSLog(@"Uploader: resume");
+    self.suspended = NO;
+    self.mainOperationQueue.suspended = NO;
+    for(TRVSURLSessionOperation *operation in self.mainOperationQueue.operations) {
+        if([operation isExecuting] && operation.suspended) {
+            [operation resume];
+        }
+    }
+    @synchronized(self.operationQueues) {
+        NSOperationQueue *queue;
+        for(NSString *queueId in self.operationQueues) {
+            queue = [self.operationQueues objectForKey:queueId];
+            queue.suspended = NO;
+            for(TRVSURLSessionOperation *operation in queue.operations) {
+                if([operation isExecuting] && operation.suspended) {
+                    [operation resume];
+                }
+            }
+        }
+    }
+}
+
 - (void)invalidate
 {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
     [self.session invalidateAndCancel];
     [self.mainOperationQueue cancelAllOperations];
     @synchronized(self.operationQueues) {
@@ -354,6 +429,7 @@ RCT_EXPORT_METHOD(getFileInfo:(NSString *)path resolve:(RCTPromiseResolveBlock)r
     
     NSLog(@"Request: %@ | %@ | %p", requestUrl.absoluteString, uploadId, queue);
     NSLog(@"Pending in queue: %lu", queue.operationCount);
+    NSLog(@"Reachable: %@", [self.reach isReachable] ? @"YES" : @"NO");
     
 }
 
@@ -460,7 +536,6 @@ totalBytesExpectedToSend:(int64_t)totalBytesExpectedToSend {
 - (void)URLSession:(NSURLSession *)session
               task:(NSURLSessionTask *)task
 didFinishCollectingMetrics:(NSURLSessionTaskMetrics *)metrics {
-    NSLog(@"didFinishCollectingMetrics");
     NSString *uploadId = task.taskDescription;
     if (!uploadId) {
         NSLog(@"No uploadId in task");
@@ -514,29 +589,11 @@ didCompleteWithError:(NSError *)error {
             [self sendEventWithName:@"RNFileUploader-completed" body:eventData];
         }
     } else {
+        if (error.code == NSURLErrorCancelled) {
+            NSLog(@"Upload %@ cancelled", uploadId);
+            return;
+        }
         NSLog(@"Upload error for %@: %@", uploadId, error.localizedDescription);
-        NSOperationQueue *queue = self.mainOperationQueue;
-        for(TRVSURLSessionOperation *operation in queue.operations) {
-            if(operation.uploadId == uploadId) {
-                if([operation attempts] < 3) {
-                    [operation retry];
-                    return;
-                }
-            }
-        }
-        @synchronized(self.operationQueues) {
-            for(NSString *queueId in self.operationQueues) {
-                queue = [self.operationQueues objectForKey:queueId];
-                for(TRVSURLSessionOperation *operation in queue.operations) {
-                    if(operation.uploadId == uploadId) {
-                        if([operation attempts] < 3) {
-                            [operation retry];
-                            return;
-                        }
-                    }
-                }
-            }
-        }
         [eventData setObject:error.localizedDescription forKey:@"error"];
         if(self.bridge) {
             if (error.code == NSURLErrorCancelled) {
@@ -545,17 +602,15 @@ didCompleteWithError:(NSError *)error {
                 [self sendEventWithName:@"RNFileUploader-error" body:eventData];
             }
         }
-        if (error.code != NSURLErrorCancelled) {
-            // If the upload was part of a named queue, cancel the remaining items on failure
-            @synchronized(self.operationQueues) {
-                NSOperationQueue *queue;
-                for(NSString *queueId in self.operationQueues) {
-                    queue = [self.operationQueues objectForKey:queueId];
-                    for(TRVSURLSessionOperation *operation in queue.operations) {
-                        if(operation.uploadId == uploadId) {
-                            NSLog(@"cancelAllOperations");
-                            [queue cancelAllOperations];
-                        }
+        // If the upload was part of a named queue, cancel the remaining items on failure
+        @synchronized(self.operationQueues) {
+            NSOperationQueue *queue;
+            for(NSString *queueId in self.operationQueues) {
+                queue = [self.operationQueues objectForKey:queueId];
+                for(TRVSURLSessionOperation *operation in queue.operations) {
+                    if(operation.uploadId == uploadId) {
+                        NSLog(@"cancelAllOperations");
+                        [queue cancelAllOperations];
                     }
                 }
             }
@@ -572,6 +627,11 @@ didCompleteWithError:(NSError *)error {
             void (^completionHandler)() = appDelegate.sessionCompletionHandler;
             appDelegate.sessionCompletionHandler = nil;
             completionHandler();
+            if([self.reach isReachable]) {
+                [self resumeDownloads];
+            } else {
+                [self pauseDownloads];
+            }
         }
     });
 }

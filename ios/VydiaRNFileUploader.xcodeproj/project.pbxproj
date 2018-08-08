@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		722A42DF211B983D00ECE487 /* Reachability.m in Sources */ = {isa = PBXBuildFile; fileRef = 722A42DE211B983D00ECE487 /* Reachability.m */; };
 		725D56EE20F7C84C0070A9BE /* TRVSQueuedURLSesssion.m in Sources */ = {isa = PBXBuildFile; fileRef = 725D56ED20F7C84C0070A9BE /* TRVSQueuedURLSesssion.m */; };
 		72679A792117871B0042C743 /* BackgroundTransferAppDelegate.m in Sources */ = {isa = PBXBuildFile; fileRef = 72679A782117871B0042C743 /* BackgroundTransferAppDelegate.m */; };
 		DCC748851E044F8700EA453E /* VydiaRNFileUploader.m in Sources */ = {isa = PBXBuildFile; fileRef = DCC748841E044F8700EA453E /* VydiaRNFileUploader.m */; };
@@ -26,6 +27,8 @@
 
 /* Begin PBXFileReference section */
 		014A3B5C1C6CF33500B6D375 /* libVydiaRNFileUploader.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libVydiaRNFileUploader.a; sourceTree = BUILT_PRODUCTS_DIR; };
+		722A42DD211B97FB00ECE487 /* Reachability.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = Reachability.h; sourceTree = "<group>"; };
+		722A42DE211B983D00ECE487 /* Reachability.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = Reachability.m; sourceTree = "<group>"; };
 		725D56EC20F7C8310070A9BE /* TRVSQueuedURLSesssion.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = TRVSQueuedURLSesssion.h; sourceTree = "<group>"; };
 		725D56ED20F7C84C0070A9BE /* TRVSQueuedURLSesssion.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = TRVSQueuedURLSesssion.m; sourceTree = "<group>"; };
 		72679A77211786DF0042C743 /* BackgroundTransferAppDelegate.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BackgroundTransferAppDelegate.h; sourceTree = "<group>"; };
@@ -48,6 +51,8 @@
 		014A3B531C6CF33500B6D375 = {
 			isa = PBXGroup;
 			children = (
+				722A42DD211B97FB00ECE487 /* Reachability.h */,
+				722A42DE211B983D00ECE487 /* Reachability.m */,
 				72679A77211786DF0042C743 /* BackgroundTransferAppDelegate.h */,
 				72679A782117871B0042C743 /* BackgroundTransferAppDelegate.m */,
 				725D56EC20F7C8310070A9BE /* TRVSQueuedURLSesssion.h */,
@@ -124,6 +129,7 @@
 			files = (
 				72679A792117871B0042C743 /* BackgroundTransferAppDelegate.m in Sources */,
 				725D56EE20F7C84C0070A9BE /* TRVSQueuedURLSesssion.m in Sources */,
+				722A42DF211B983D00ECE487 /* Reachability.m in Sources */,
 				DCC748851E044F8700EA453E /* VydiaRNFileUploader.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

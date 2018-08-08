@@ -27,6 +27,7 @@ BLOCK(); \
 
 - (instancetype)initWithSession:(NSURLSession *)session uploadId:(NSString *)uploadId request:(NSURLRequest *)request {
     if (self = [super init]) {
+        self.suspended = NO;
         self.request = request;
         self.session = session;
         self.uploadId = uploadId;
@@ -39,6 +40,7 @@ BLOCK(); \
 
 - (instancetype)initWithSession:(NSURLSession *)session uploadId:(NSString *)uploadId request:(NSURLRequest *)request fromFileUrl:(NSURL *)fileURL {
     if (self = [super init]) {
+        self.suspended = NO;
         self.request = request;
         self.fileURL = fileURL;
         self.session = session;
@@ -50,17 +52,32 @@ BLOCK(); \
     return self;
 }
 
+- (void)suspend {
+    [self.task cancel];
+    self.suspended = YES;
+}
+
+- (void)resume {
+    if(self.fileURL && self.request) {
+        self.task = [self.session uploadTaskWithRequest:self.request fromFile:self.fileURL];
+    } else if(self.request) {
+        self.task = [self.session uploadTaskWithRequest:self.request fromData:nil];
+    }
+    self.task.taskDescription = self.uploadId;
+    [self.task resume];
+    self.suspended = NO;
+}
+
 - (void)retry {
     self.attempt++;
     NSLog(@"Retry attempt %d", self.attempt);
-    NSString *uploadId = self.task.taskDescription;
     [self.task cancel];
     if(self.fileURL && self.request) {
         self.task = [self.session uploadTaskWithRequest:self.request fromFile:self.fileURL];
     } else if(self.request) {
         self.task = [self.session uploadTaskWithRequest:self.request fromData:nil];
     }
-    self.task.taskDescription = uploadId;
+    self.task.taskDescription = self.uploadId;
     [self.task resume];
 }
 
