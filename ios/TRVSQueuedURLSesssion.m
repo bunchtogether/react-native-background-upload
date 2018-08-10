@@ -31,7 +31,7 @@ BLOCK(); \
         self.request = request;
         self.session = session;
         self.uploadId = uploadId;
-        self.attempt = 0;
+        self.attempt = 1;
         _executing = NO;
         _finished = NO;
     }
@@ -45,7 +45,7 @@ BLOCK(); \
         self.fileURL = fileURL;
         self.session = session;
         self.uploadId = uploadId;
-        self.attempt = 0;
+        self.attempt = 1;
         _executing = NO;
         _finished = NO;
     }
@@ -69,16 +69,10 @@ BLOCK(); \
 }
 
 - (void)retry {
-    self.attempt++;
-    NSLog(@"Retry attempt %d", self.attempt);
     [self.task cancel];
-    if(self.fileURL && self.request) {
-        self.task = [self.session uploadTaskWithRequest:self.request fromFile:self.fileURL];
-    } else if(self.request) {
-        self.task = [self.session uploadTaskWithRequest:self.request fromData:nil];
-    }
-    self.task.taskDescription = self.uploadId;
-    [self.task resume];
+    [self performSelector:@selector(resume) withObject:self afterDelay:self.attempt * self.attempt * 10];
+    NSLog(@"Retry attempt %d for %@ starting in %d seconds", self.attempt, self.uploadId, self.attempt * self.attempt * 10);
+    self.attempt++;
 }
 
 - (int)attempts {

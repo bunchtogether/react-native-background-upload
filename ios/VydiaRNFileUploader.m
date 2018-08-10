@@ -461,14 +461,39 @@ RCT_EXPORT_METHOD(startUpload:(NSDictionary *)options resolve:(RCTPromiseResolve
  * Event "cancelled" will be fired when upload is cancelled.
  */
 RCT_EXPORT_METHOD(cancelUpload: (NSString *)cancelUploadId resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject) {
-    [self.session getTasksWithCompletionHandler:^(NSArray *dataTasks, NSArray *uploadTasks, NSArray *downloadTasks) {
-        for (NSURLSessionTask *uploadTask in uploadTasks) {
-            if (uploadTask.taskDescription == cancelUploadId) {
-                [uploadTask cancel];
+    for(TRVSURLSessionOperation *operation in self.mainOperationQueue.operations) {
+        if(operation.uploadId == cancelUploadId) {
+            NSMutableDictionary *eventData = [NSMutableDictionary dictionaryWithObjectsAndKeys:operation.uploadId, @"id", nil];
+            [self sendEventWithName:@"RNFileUploader-cancelled" body:eventData];
+            [operation cancel];
+            resolve([NSNumber numberWithBool:YES]);
+            return;
+        }
+    }
+    @synchronized(self.operationQueues) {
+        NSOperationQueue *queue;
+        for(NSString *queueId in self.operationQueues) {
+            queue = [self.operationQueues objectForKey:queueId];
+            BOOL cancelQueue = NO;
+            for(TRVSURLSessionOperation *operation in queue.operations) {
+                if(operation.uploadId == cancelUploadId) {
+                    NSLog(@"Cancelling operations in queue %@ after individual cancellation of %@", queueId, operation.uploadId);
+                    cancelQueue = YES;
+                    break;
+                }
+            }
+            if(cancelQueue) {
+                for(TRVSURLSessionOperation *operation in queue.operations) {
+                    NSMutableDictionary *eventData = [NSMutableDictionary dictionaryWithObjectsAndKeys:operation.uploadId, @"id", nil];
+                    [self sendEventWithName:@"RNFileUploader-cancelled" body:eventData];
+                }
+                [queue cancelAllOperations];
+                resolve([NSNumber numberWithBool:YES]);
+                return;
             }
         }
-    }];
-    resolve([NSNumber numberWithBool:YES]);
+    }
+    resolve([NSNumber numberWithBool:NO]);
 }
 
 - (NSData *)createBodyWithBoundary:(NSString *)boundary
@@ -592,13 +617,31 @@ didCompleteWithError:(NSError *)error {
             return;
         }
         NSLog(@"Upload error for %@: %@", uploadId, error.localizedDescription);
+        for(TRVSURLSessionOperation *operation in self.mainOperationQueue.operations) {
+            if(operation.uploadId == uploadId) {
+                if([operation attempts] < 5) {
+                    [operation retry];
+                    return;
+                }
+            }
+        }
+        @synchronized(self.operationQueues) {
+            NSOperationQueue *queue;
+            for(NSString *queueId in self.operationQueues) {
+                queue = [self.operationQueues objectForKey:queueId];
+                for(TRVSURLSessionOperation *operation in queue.operations) {
+                    if(operation.uploadId == uploadId) {
+                        if([operation attempts] < 5) {
+                            [operation retry];
+                            return;
+                        }
+                    }
+                }
+            }
+        }
         [eventData setObject:error.localizedDescription forKey:@"error"];
         if(self.bridge) {
-            if (error.code == NSURLErrorCancelled) {
-                [self sendEventWithName:@"RNFileUploader-cancelled" body:eventData];
-            } else {
-                [self sendEventWithName:@"RNFileUploader-error" body:eventData];
-            }
+            [self sendEventWithName:@"RNFileUploader-error" body:eventData];
         }
         // If the upload was part of a named queue, cancel the remaining items on failure
         @synchronized(self.operationQueues) {
@@ -607,7 +650,7 @@ didCompleteWithError:(NSError *)error {
                 queue = [self.operationQueues objectForKey:queueId];
                 for(TRVSURLSessionOperation *operation in queue.operations) {
                     if(operation.uploadId == uploadId) {
-                        NSLog(@"cancelAllOperations");
+                        NSLog(@"Cancelling operations in queue %@ after failure of %@", queueId, uploadId);
                         [queue cancelAllOperations];
                     }
                 }
