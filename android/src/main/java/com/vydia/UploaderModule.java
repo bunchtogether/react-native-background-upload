@@ -392,6 +392,7 @@ public class UploaderModule extends ReactContextBaseJavaModule {
               params.putString("id", uploadInfo.getUploadId());
               params.putInt("responseCode", serverResponse.getHttpCode());
               params.putString("responseBody", serverResponse.getBodyAsString());
+              params.putInt("duration", (int) uploadInfo.getElapsedTime());
               sendEvent("completed", params);
               jobInProgress = false;
               Log.d(TAG, String.format("COMPLETED JOB %s", uploadInfo.getUploadId()));
