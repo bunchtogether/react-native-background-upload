@@ -619,7 +619,7 @@ didCompleteWithError:(NSError *)error {
         NSLog(@"Upload error for %@: %@", uploadId, error.localizedDescription);
         for(TRVSURLSessionOperation *operation in self.mainOperationQueue.operations) {
             if(operation.uploadId == uploadId) {
-                if([operation attempts] < 5) {
+                if([operation attempts] < 20) {
                     [operation retry];
                     return;
                 }
@@ -631,7 +631,7 @@ didCompleteWithError:(NSError *)error {
                 queue = [self.operationQueues objectForKey:queueId];
                 for(TRVSURLSessionOperation *operation in queue.operations) {
                     if(operation.uploadId == uploadId) {
-                        if([operation attempts] < 5) {
+                        if([operation attempts] < 20) {
                             [operation retry];
                             return;
                         }

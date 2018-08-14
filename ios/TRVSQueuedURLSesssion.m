@@ -70,8 +70,8 @@ BLOCK(); \
 
 - (void)retry {
     [self.task cancel];
-    [self performSelector:@selector(resume) withObject:self afterDelay:self.attempt * self.attempt * 10];
-    NSLog(@"Retry attempt %d for %@ starting in %d seconds", self.attempt, self.uploadId, self.attempt * self.attempt * 10);
+    [self performSelector:@selector(resume) withObject:self afterDelay:self.attempt * self.attempt * 30];
+    NSLog(@"Retry attempt %d for %@ starting in %d seconds", self.attempt, self.uploadId, self.attempt * self.attempt * 30);
     self.attempt++;
 }
 
