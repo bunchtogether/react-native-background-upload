@@ -588,9 +588,9 @@ didCompleteWithError:(NSError *)error {
     }
     
     //Add data that was collected earlier by the didReceiveData method
-    NSMutableData *responseData = self.responsesData[uploadId];
+    NSMutableData *responseData = self.responsesData[@(task.taskIdentifier)];
     if (responseData) {
-        [self.responsesData removeObjectForKey:uploadId];
+        [self.responsesData removeObjectForKey:@(task.taskIdentifier)];
         NSString *response = [[NSString alloc] initWithData:responseData encoding:NSUTF8StringEncoding];
         [eventData setObject:response forKey:@"responseBody"];
     } else {
