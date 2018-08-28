@@ -25,12 +25,14 @@ export type StartUploadArgs = {
   notification?: NotificationArgs,
 };
 
-const NativeModule =
-  NativeModules.VydiaRNFileUploader || NativeModules.RNFileUploader; // iOS is VydiaRNFileUploader and Android is NativeModules
+const NativeModule = NativeModules.UploaderManager || NativeModules.RNFileUploader; // iOS is UploaderManager and Android is NativeModules
 const eventPrefix = "RNFileUploader-";
 
+console.log(Object.keys(NativeModules.UploaderManager));
+
+
 // for IOS, register event listeners or else they don't fire on DeviceEventEmitter
-if (NativeModules.VydiaRNFileUploader) {
+if (NativeModules.UploaderManager) {
   NativeModule.addListener(eventPrefix + "progress");
   NativeModule.addListener(eventPrefix + "error");
   NativeModule.addListener(eventPrefix + "cancelled");

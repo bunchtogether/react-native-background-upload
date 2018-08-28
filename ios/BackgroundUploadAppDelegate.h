@@ -1,5 +1,5 @@
 //
-//  BackgroundTransferAppDelegate.h
+//  BackgroundUploadAppDelegate.h
 //  VydiaRNFileUploader
 //
 //  Created by John Wehr on 8/5/18.
@@ -8,8 +8,8 @@
 
 #import <UIKit/UIKit.h>
 
-@interface BackgroundTransferAppDelegate : UIResponder <UIApplicationDelegate>
+@interface BackgroundUploadAppDelegate : UIResponder <UIApplicationDelegate>
 
 @property (strong, nonatomic) UIWindow *window;
-@property (copy) void (^sessionCompletionHandler)();
+@property (nonatomic, strong) NSMutableDictionary *sessionCompletionHandlers;
 @end

@@ -1,5 +1,5 @@
 //
-//  TRVSQueuedURLSesssion.h
+//  QueuedUploadSession.h
 //  TRVSURLSessionOperation
 //
 // License: https://github.com/travisjeffery/TRVSURLSessionOperation/blob/master/LICENSE
@@ -7,7 +7,7 @@
 
 #import <Foundation/Foundation.h>
 
-@interface TRVSURLSessionOperation : NSOperation
+@interface UploadSessionOperation : NSOperation
 
 - (instancetype)initWithSession:(NSURLSession *)session uploadId:(NSString *)uploadId request:(NSURLRequest *)request;
 - (instancetype)initWithSession:(NSURLSession *)session uploadId:(NSString *)uploadId request:(NSURLRequest *)request fromFileUrl:(NSURL *)fileURL;
