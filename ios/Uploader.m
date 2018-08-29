@@ -15,6 +15,7 @@
 @property (nonatomic, strong) NSMutableOrderedSet *uploadIds;
 @property (nonatomic, strong) NSMutableDictionary *operationQueues;
 @property (nonatomic, strong) NSURLSession *session;
+@property (nonatomic, strong) NSURLSession *backgroundSession;
 @property (nonatomic, strong) Reachability *reach;
 @property (nonatomic, assign) BOOL suspended;
 
@@ -87,8 +88,10 @@
         NSArray *ids = [defaults stringArrayForKey: @"backgroundUploads"];
 #if (TARGET_IPHONE_SIMULATOR)
         NSURLSessionConfiguration *config = [NSURLSessionConfiguration defaultSessionConfiguration];
+        NSURLSessionConfiguration *backgroundConfig = [NSURLSessionConfiguration defaultSessionConfiguration];
 #else
-        NSURLSessionConfiguration *config = [NSURLSessionConfiguration backgroundSessionConfigurationWithIdentifier:@"ReactNativeBackgroundUpload"];
+        NSURLSessionConfiguration *config = [NSURLSessionConfiguration defaultSessionConfiguration];
+        NSURLSessionConfiguration *backgroundConfig = [NSURLSessionConfiguration backgroundSessionConfigurationWithIdentifier:@"ReactNativeBackgroundUpload"];
 #endif
         config.allowsCellularAccess = YES;
         config.requestCachePolicy = NSURLRequestReloadIgnoringLocalCacheData;
@@ -96,8 +99,21 @@
         config.HTTPCookieAcceptPolicy = NSHTTPCookieAcceptPolicyAlways;
         config.timeoutIntervalForResource = 600.0;
         config.sessionSendsLaunchEvents = YES;
+        config.shouldUseExtendedBackgroundIdleMode = YES;
+        config.HTTPShouldUsePipelining = YES;
+        config.waitsForConnectivity = NO;
         self.session = [NSURLSession sessionWithConfiguration:config delegate:self delegateQueue:nil];
-        self.session.sessionDescription = @"ReactNativeBackgroundUpload";
+        backgroundConfig.allowsCellularAccess = YES;
+        backgroundConfig.requestCachePolicy = NSURLRequestReloadIgnoringLocalCacheData;
+        backgroundConfig.URLCache = nil;
+        backgroundConfig.HTTPCookieAcceptPolicy = NSHTTPCookieAcceptPolicyAlways;
+        backgroundConfig.timeoutIntervalForResource = 600.0;
+        backgroundConfig.sessionSendsLaunchEvents = YES;
+        backgroundConfig.shouldUseExtendedBackgroundIdleMode = YES;
+        backgroundConfig.HTTPShouldUsePipelining = YES;
+        backgroundConfig.waitsForConnectivity = NO;
+        self.backgroundSession = [NSURLSession sessionWithConfiguration:backgroundConfig delegate:self delegateQueue:nil];
+        self.backgroundSession.sessionDescription = @"ReactNativeBackgroundUpload";
         self.suspended = NO;
         self.reach = [Reachability reachabilityForInternetConnection];
         [[NSNotificationCenter defaultCenter] addObserver:self
@@ -191,6 +207,7 @@
 {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [self.session invalidateAndCancel];
+    [self.backgroundSession invalidateAndCancel];
     [self.mainOperationQueue cancelAllOperations];
     @synchronized(self.operationQueues) {
         NSOperationQueue *queue;
@@ -204,6 +221,7 @@
     self.uploadIds = nil;
     self.operationQueues = nil;
     self.session = nil;
+    self.backgroundSession = nil;
 }
 
 
@@ -317,13 +335,13 @@
     if(!uploadId) {
         return;
     }
+    [self clearOperation:uploadId];
     @synchronized(self.uploadIds) {
         [self.uploadIds removeObject:uploadId];
         NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
         [defaults removeObjectForKey:uploadId];
         [defaults setObject:[self.uploadIds array] forKey:@"backgroundUploads"];
     }
-    [self clearOperation:uploadId];
 }
 
 - (void)enqueueUpload: (NSString *)uploadId options:(NSDictionary *)options {
@@ -401,20 +419,20 @@
         [request setValue:[NSString stringWithFormat:@"multipart/form-data; boundary=%@", uuidStr] forHTTPHeaderField:@"Content-Type"];
         NSData *httpBody = [self createBodyWithBoundary:uuidStr path:fileURI parameters: parameters fieldName:fieldName];
         [request setHTTPBody: httpBody];
-        operation = [[UploadSessionOperation alloc] initWithSession:self.session uploadId:uploadId request:request];
+        operation = [[UploadSessionOperation alloc] initWithSession:self.session backgroundSession:self.backgroundSession uploadId:uploadId request:request];
         [eventData setObject:[NSNumber numberWithInteger:httpBody.length] forKey:@"size"];
     } else if ([uploadType isEqualToString:@"json"]) {
         [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
         NSData *httpBody = [Uploader normalizedJSONRequestBody:parameters];
         [request setHTTPBody:httpBody];
-        operation = [[UploadSessionOperation alloc] initWithSession:self.session uploadId:uploadId request:request];
+        operation = [[UploadSessionOperation alloc] initWithSession:self.session backgroundSession:self.backgroundSession uploadId:uploadId request:request];
         [eventData setObject:[NSNumber numberWithInteger:httpBody.length] forKey:@"size"];
     } else {
         if (parameters.count > 0) {
             RCTLogError(@"RN Uploader: Parameters supported only in 'multipart' and 'json' type");
             return [self removeUpload:uploadId];
         }
-        operation = [[UploadSessionOperation alloc] initWithSession:self.session uploadId:uploadId request:request fromFileUrl:[NSURL URLWithString:fileURI]];
+        operation = [[UploadSessionOperation alloc] initWithSession:self.session backgroundSession:self.backgroundSession uploadId:uploadId request:request fromFileUrl:[NSURL URLWithString:fileURI]];
         [eventData setObject:[NSNumber numberWithInteger:[[NSFileManager defaultManager] attributesOfItemAtPath:[[NSURL URLWithString:fileURI] path] error:nil].fileSize] forKey:@"size"];
     }
     if(queueId) {

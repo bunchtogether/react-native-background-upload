@@ -5,6 +5,7 @@
 // License: https://github.com/travisjeffery/TRVSURLSessionOperation/blob/master/LICENSE
 //
 
+#import <UIKit/UIKit.h>
 #import "QueuedUploadSession.h"
 
 #define QUEUED_UPLOAD_BLOCK(KEYPATH, BLOCK) \
@@ -14,6 +15,7 @@ BLOCK(); \
 
 @interface UploadSessionOperation ()
 @property (nonatomic, strong) NSURLSession *session;
+@property (nonatomic, strong) NSURLSession *backgroundSession;
 @property (nonatomic, strong) NSURLRequest *request;
 @property (nonatomic, strong) NSURL *fileURL;
 @property (nonatomic, strong) NSURLSessionUploadTask *task;
@@ -25,11 +27,12 @@ BLOCK(); \
     BOOL _executing;
 }
 
-- (instancetype)initWithSession:(NSURLSession *)session uploadId:(NSString *)uploadId request:(NSURLRequest *)request {
+- (instancetype)initWithSession:(NSURLSession *)session backgroundSession:(NSURLSession *)backgroundSession uploadId:(NSString *)uploadId request:(NSURLRequest *)request {
     if (self = [super init]) {
         self.suspended = NO;
         self.request = request;
         self.session = session;
+        self.backgroundSession = backgroundSession;
         self.uploadId = uploadId;
         self.attempt = 1;
         _executing = NO;
@@ -38,12 +41,13 @@ BLOCK(); \
     return self;
 }
 
-- (instancetype)initWithSession:(NSURLSession *)session uploadId:(NSString *)uploadId request:(NSURLRequest *)request fromFileUrl:(NSURL *)fileURL {
+- (instancetype)initWithSession:(NSURLSession *)session backgroundSession:(NSURLSession *)backgroundSession uploadId:(NSString *)uploadId request:(NSURLRequest *)request fromFileUrl:(NSURL *)fileURL {
     if (self = [super init]) {
         self.suspended = NO;
         self.request = request;
         self.fileURL = fileURL;
         self.session = session;
+        self.backgroundSession = backgroundSession;
         self.uploadId = uploadId;
         self.attempt = 1;
         _executing = NO;
@@ -58,20 +62,22 @@ BLOCK(); \
 }
 
 - (void)resume {
+    UIApplicationState state = [[UIApplication sharedApplication] applicationState];
+    NSURLSession *session = (state == UIApplicationStateBackground || state == UIApplicationStateInactive) ? self.backgroundSession : self.session;
     if(self.fileURL && self.request) {
-        self.task = [self.session uploadTaskWithRequest:self.request fromFile:self.fileURL];
+        self.task = [session uploadTaskWithRequest:self.request fromFile:self.fileURL];
         // Retry a failed background task if initial creation did not succeed
-        if (!self.task && self.session.configuration.identifier) {
+        if (!self.task && session.configuration.identifier) {
             for (NSUInteger attempts = 0; !self.task && attempts < 3; attempts++) {
-                self.task = [self.session uploadTaskWithRequest:self.request fromFile:self.fileURL];
+                self.task = [session uploadTaskWithRequest:self.request fromFile:self.fileURL];
             }
         }
     } else if(self.request) {
-        self.task = [self.session uploadTaskWithRequest:self.request fromData:nil];
+        self.task = [session uploadTaskWithRequest:self.request fromData:nil];
         // Retry a failed background task if initial creation did not succeed
-        if (!self.task && self.session.configuration.identifier) {
+        if (!self.task && session.configuration.identifier) {
             for (NSUInteger attempts = 0; !self.task && attempts < 3; attempts++) {
-                self.task = [self.session uploadTaskWithRequest:self.request fromData:nil];
+                self.task = [session uploadTaskWithRequest:self.request fromData:nil];
             }
         }
     }
@@ -101,20 +107,22 @@ BLOCK(); \
         QUEUED_UPLOAD_BLOCK(@"isFinished", ^{ _finished = YES; });
         return;
     }
+    UIApplicationState state = [[UIApplication sharedApplication] applicationState];
+    NSURLSession *session = (state == UIApplicationStateBackground || state == UIApplicationStateInactive) ? self.backgroundSession : self.session;
     if(self.fileURL && self.request) {
-        self.task = [self.session uploadTaskWithRequest:self.request fromFile:self.fileURL];
+        self.task = [session uploadTaskWithRequest:self.request fromFile:self.fileURL];
         // Retry a failed background task if initial creation did not succeed
-        if (!self.task && self.session.configuration.identifier) {
+        if (!self.task && session.configuration.identifier) {
             for (NSUInteger attempts = 0; !self.task && attempts < 3; attempts++) {
-                self.task = [self.session uploadTaskWithRequest:self.request fromFile:self.fileURL];
+                self.task = [session uploadTaskWithRequest:self.request fromFile:self.fileURL];
             }
         }
     } else if(self.request) {
-        self.task = [self.session uploadTaskWithRequest:self.request fromData:nil];
+        self.task = [session uploadTaskWithRequest:self.request fromData:nil];
         // Retry a failed background task if initial creation did not succeed
-        if (!self.task && self.session.configuration.identifier) {
+        if (!self.task && session.configuration.identifier) {
             for (NSUInteger attempts = 0; !self.task && attempts < 3; attempts++) {
-                self.task = [self.session uploadTaskWithRequest:self.request fromData:nil];
+                self.task = [session uploadTaskWithRequest:self.request fromData:nil];
             }
         }
     }

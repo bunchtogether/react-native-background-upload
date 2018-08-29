@@ -9,8 +9,8 @@
 
 @interface UploadSessionOperation : NSOperation
 
-- (instancetype)initWithSession:(NSURLSession *)session uploadId:(NSString *)uploadId request:(NSURLRequest *)request;
-- (instancetype)initWithSession:(NSURLSession *)session uploadId:(NSString *)uploadId request:(NSURLRequest *)request fromFileUrl:(NSURL *)fileURL;
+- (instancetype)initWithSession:(NSURLSession *)session backgroundSession:(NSURLSession *)backgroundSession uploadId:(NSString *)uploadId request:(NSURLRequest *)request;
+- (instancetype)initWithSession:(NSURLSession *)session backgroundSession:(NSURLSession *)backgroundSession uploadId:(NSString *)uploadId request:(NSURLRequest *)request fromFileUrl:(NSURL *)fileURL;
 - (void)completeOperation;
 - (void)retry;
 - (void)suspend;
