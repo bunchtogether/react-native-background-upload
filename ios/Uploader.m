@@ -228,7 +228,7 @@
 - (void) clearOperation:(NSString *)uploadId {
     NSOperationQueue *queue = self.mainOperationQueue;
     for(UploadSessionOperation *operation in queue.operations) {
-        if(operation.uploadId == uploadId) {
+        if([operation.uploadId isEqualToString:uploadId]) {
             [operation completeOperation];
             return;
         }
@@ -238,7 +238,7 @@
         for(NSString *queueId in self.operationQueues) {
             queue = [self.operationQueues objectForKey:queueId];
             for(UploadSessionOperation *operation in queue.operations) {
-                if(operation.uploadId == uploadId) {
+                if([operation.uploadId isEqualToString:uploadId]) {
                     [operation completeOperation];
                     return;
                 }
@@ -480,7 +480,7 @@
  */
 - (void) cancelUpload: (NSString *)cancelUploadId resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
     for(UploadSessionOperation *operation in self.mainOperationQueue.operations) {
-        if(operation.uploadId == cancelUploadId) {
+        if([operation.uploadId isEqualToString:cancelUploadId]) {
             NSMutableDictionary *eventData = [NSMutableDictionary dictionaryWithObjectsAndKeys:operation.uploadId, @"id", nil];
             [self sendEventWithName:@"RNFileUploader-cancelled" body:eventData];
             [operation cancel];
@@ -494,7 +494,7 @@
             queue = [self.operationQueues objectForKey:queueId];
             BOOL cancelQueue = NO;
             for(UploadSessionOperation *operation in queue.operations) {
-                if(operation.uploadId == cancelUploadId) {
+                if([operation.uploadId isEqualToString:cancelUploadId]) {
                     NSLog(@"Cancelling operations in queue %@ after individual cancellation of %@", queueId, operation.uploadId);
                     cancelQueue = YES;
                     break;
@@ -631,11 +631,9 @@ didCompleteWithError:(NSError *)error {
         }
         NSLog(@"Upload error for %@: %@", uploadId, error.localizedDescription);
         for(UploadSessionOperation *operation in self.mainOperationQueue.operations) {
-            if(operation.uploadId == uploadId) {
-                if([operation attempts] < 20) {
-                    [operation retry];
-                    return;
-                }
+            if([operation.uploadId isEqualToString:uploadId] && [operation attempts] < 20) {
+                [operation retry];
+                return;
             }
         }
         @synchronized(self.operationQueues) {
@@ -643,11 +641,9 @@ didCompleteWithError:(NSError *)error {
             for(NSString *queueId in self.operationQueues) {
                 queue = [self.operationQueues objectForKey:queueId];
                 for(UploadSessionOperation *operation in queue.operations) {
-                    if(operation.uploadId == uploadId) {
-                        if([operation attempts] < 20) {
-                            [operation retry];
-                            return;
-                        }
+                    if([operation.uploadId isEqualToString:uploadId] && [operation attempts] < 20) {
+                        [operation retry];
+                        return;
                     }
                 }
             }
@@ -660,7 +656,7 @@ didCompleteWithError:(NSError *)error {
             for(NSString *queueId in self.operationQueues) {
                 queue = [self.operationQueues objectForKey:queueId];
                 for(UploadSessionOperation *operation in queue.operations) {
-                    if(operation.uploadId == uploadId) {
+                    if([operation.uploadId isEqualToString:uploadId]) {
                         NSLog(@"Cancelling operations in queue %@ after failure of %@", queueId, uploadId);
                         [queue cancelAllOperations];
                     }
