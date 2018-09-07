@@ -28,9 +28,6 @@ export type StartUploadArgs = {
 const NativeModule = NativeModules.UploaderManager || NativeModules.RNFileUploader; // iOS is UploaderManager and Android is NativeModules
 const eventPrefix = "RNFileUploader-";
 
-console.log(Object.keys(NativeModules.UploaderManager));
-
-
 // for IOS, register event listeners or else they don't fire on DeviceEventEmitter
 if (NativeModules.UploaderManager) {
   NativeModule.addListener(eventPrefix + "progress");

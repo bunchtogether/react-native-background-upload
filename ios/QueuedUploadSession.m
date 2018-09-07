@@ -89,7 +89,7 @@ BLOCK(); \
 - (void)retry {
     [self.task cancel];
     [self performSelector:@selector(resume) withObject:self afterDelay:self.attempt * self.attempt * 30];
-    NSLog(@"Retry attempt %d for %@ starting in %d seconds", self.attempt, self.uploadId, self.attempt * self.attempt * 30);
+    NSLog(@"RN Uploader: Retry attempt %d for %@ starting in %d seconds", self.attempt, self.uploadId, self.attempt * self.attempt * 30);
     self.attempt++;
 }
 
@@ -128,8 +128,8 @@ BLOCK(); \
     }
     self.task.taskDescription = self.uploadId;
     [self.task resume];
+    NSLog(@"RN Uploader: Operation %@ executing", self.task.taskDescription);
     QUEUED_UPLOAD_BLOCK(@"isExecuting", ^{
-        NSLog(@"isExecuting %@", self.task.taskDescription);
         _executing = YES;
     });
 

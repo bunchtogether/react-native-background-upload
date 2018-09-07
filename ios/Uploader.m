@@ -356,7 +356,13 @@
     NSString *queueId = options[@"queueId"];
     
     NSOperationQueue *queue = self.mainOperationQueue;
-    
+    if(!uploadId) {
+        NSException* missingUploadIdException = [NSException
+                                    exceptionWithName:@"MissingUploadIdException"
+                                    reason:@"Missing required argument uploadId"
+                                    userInfo:nil];
+        @throw missingUploadIdException;
+    }
     if(queueId) {
         @synchronized(self.operationQueues) {
             queue = self.operationQueues[queueId];
