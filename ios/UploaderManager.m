@@ -47,7 +47,6 @@ RCT_EXPORT_MODULE();
 }
 
 - (void)invalidate {
-    [[Uploader sharedUploader] invalidate];
     [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 

@@ -203,8 +203,10 @@
     }
 }
 
-- (void)invalidate
+- (void)dealloc
 {
+    NSLog(@"RN Uploader dealloc");
+    [self.reach stopNotifier];
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [self.session invalidateAndCancel];
     [self.backgroundSession invalidateAndCancel];
@@ -217,13 +219,14 @@
         }
     }
     self.responsesData = nil;
+    self.metrics = nil;
     self.mainOperationQueue = nil;
     self.uploadIds = nil;
     self.operationQueues = nil;
     self.session = nil;
     self.backgroundSession = nil;
+    self.reach = nil;
 }
-
 
 - (void) clearOperation:(NSString *)uploadId {
     NSOperationQueue *queue = self.mainOperationQueue;
