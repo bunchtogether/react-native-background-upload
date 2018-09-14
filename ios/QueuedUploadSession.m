@@ -88,8 +88,9 @@ BLOCK(); \
 
 - (void)retry {
     [self.task cancel];
-    [self performSelector:@selector(resume) withObject:self afterDelay:self.attempt * self.attempt * 30];
-    NSLog(@"RN Uploader: Retry attempt %d for %@ starting in %d seconds", self.attempt, self.uploadId, self.attempt * self.attempt * 30);
+    int waitTime = self.attempt < 5 ? 60 : 600;
+    [self performSelector:@selector(resume) withObject:self afterDelay:waitTime];
+    NSLog(@"RN Uploader: Retry attempt %d for %@ starting in %d seconds", self.attempt, self.uploadId, waitTime);
     self.attempt++;
 }
 

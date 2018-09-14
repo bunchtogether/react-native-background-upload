@@ -107,11 +107,10 @@
         backgroundConfig.requestCachePolicy = NSURLRequestReloadIgnoringLocalCacheData;
         backgroundConfig.URLCache = nil;
         backgroundConfig.HTTPCookieAcceptPolicy = NSHTTPCookieAcceptPolicyAlways;
-        backgroundConfig.timeoutIntervalForResource = 600.0;
+        backgroundConfig.timeoutIntervalForResource = 60.0;
         backgroundConfig.sessionSendsLaunchEvents = YES;
         backgroundConfig.shouldUseExtendedBackgroundIdleMode = YES;
         backgroundConfig.HTTPShouldUsePipelining = YES;
-        backgroundConfig.waitsForConnectivity = NO;
         self.backgroundSession = [NSURLSession sessionWithConfiguration:backgroundConfig delegate:self delegateQueue:nil];
         self.backgroundSession.sessionDescription = @"ReactNativeBackgroundUpload";
         self.suspended = NO;
