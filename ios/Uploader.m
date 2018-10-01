@@ -639,7 +639,7 @@ didCompleteWithError:(NSError *)error {
         }
         NSLog(@"Upload error for %@: %@", uploadId, error.localizedDescription);
         for(UploadSessionOperation *operation in self.mainOperationQueue.operations) {
-            if([operation.uploadId isEqualToString:uploadId] && [operation attempts] < 20) {
+            if([operation.uploadId isEqualToString:uploadId] && [operation attempts] < 250) {
                 [operation retry];
                 return;
             }
@@ -649,7 +649,7 @@ didCompleteWithError:(NSError *)error {
             for(NSString *queueId in self.operationQueues) {
                 queue = [self.operationQueues objectForKey:queueId];
                 for(UploadSessionOperation *operation in queue.operations) {
-                    if([operation.uploadId isEqualToString:uploadId] && [operation attempts] < 20) {
+                    if([operation.uploadId isEqualToString:uploadId] && [operation attempts] < 250) {
                         [operation retry];
                         return;
                     }
