@@ -81,7 +81,6 @@ public class UploaderModule extends ReactContextBaseJavaModule {
   private static UploaderModule instance;
   private JobManager queue;
   private boolean jobInProgress;
-  private Utils utils = new Utils();
 
   public UploaderModule(ReactApplicationContext reactContext) {
     super(reactContext);
@@ -229,7 +228,7 @@ public class UploaderModule extends ReactContextBaseJavaModule {
     String uploadId = "";
     JSONObject jobOptions;
     try {
-      jobOptions = utils.convertMapToJson(options);
+      jobOptions = Utils.convertMapToJson(options);
       // CustonUploadID is not provided, generate one
       if (!options.hasKey("customUploadId") || (options.hasKey("customUploadId") && options.getType("customUploadId") !=  ReadableType.String)) {
           UUID uuid = UUID.randomUUID();
@@ -272,7 +271,6 @@ public class UploaderModule extends ReactContextBaseJavaModule {
   }
 
   public class ProcessJob extends Job {
-    private long localId;
     public static final int PRIORITY = 1;
     public String options;
     private boolean jobInProgress = false;
@@ -285,21 +283,26 @@ public class UploaderModule extends ReactContextBaseJavaModule {
 
       // Disabled jobPresistance here
       super(new Params(PRIORITY).requireNetwork().persist());
-      localId = -System.currentTimeMillis();
       this.options = options.toString();
     }
+
     @Override
     public void onAdded() {
      Log.d(TAG, String.format("ON ADDED %s", options));
     }
+
     @Override
     public void onRun() throws Throwable {
       // Job logic goes here. In this example, the network call to post to Twitter is done here.
       // All work done here should be synchronous, a job is removed from the queue once 
       // onRun() finishes.
       Log.d(TAG, String.format("ON RUN %s", options));
-      startUploadJob(options);
-      jobInProgress = true;
+      jobInProgress = startUploadJob(options);
+      if (!jobInProgress) {
+        JSONObject optionsObj = new JSONObject(options);
+        UploadService.stopUpload(optionsObj.getString("queueId"));
+        return;
+      }
       while (jobInProgress) {
         Log.d(TAG, String.format("JOB IN PROGRESS %s", options));
         Thread.sleep(1000);
@@ -325,9 +328,7 @@ public class UploaderModule extends ReactContextBaseJavaModule {
     }
 
     // Trigger the request
-    public void startUploadJob(String jobOptions) throws JSONException {
-
-      Utils utils = new Utils();
+    public boolean startUploadJob(String jobOptions) throws JSONException {
       JSONObject options = new JSONObject(jobOptions);
       Log.d(TAG, String.format("RUNNING JOB %s", options.toString()));
 
@@ -338,10 +339,18 @@ public class UploaderModule extends ReactContextBaseJavaModule {
         notification.putBoolean("enabled", options.getJSONObject("notification").getBoolean("enabled"));
       }
 
+      final String customUploadId = options.getString("customUploadId");
       String url = options.getString("url");
+      if (!url.startsWith("http://") && !url.startsWith("https://")) {
+        Log.e(TAG, String.format("ERROR STARTING JOB %s: unable to upload to URL %s", customUploadId, url));
+        WritableMap params = Arguments.createMap();
+        params.putString("id", customUploadId);
+        sendEvent("error", params);
+        return false;
+      }
       String filePath = options.has("path") ? options.getString("path") : "";
       String method = options.has("method") ? options.getString("method") : "POST";
-      final String customUploadId = options.getString("customUploadId");
+      int bodySizeBits = 0;
 
       try {
         HttpUploadRequest<?> request;
@@ -350,17 +359,29 @@ public class UploaderModule extends ReactContextBaseJavaModule {
           requestType = options.getString("type");
         }
 
-        if (requestType.equals("raw")) {
-          request = new BinaryUploadRequest(getInstance().getReactApplicationContext(), customUploadId, url)
-                  .setFileToUpload(filePath);
-        } else if (requestType.equals("json")) {
+        if (requestType.equals("json")) {
           // Process JSON request here
           request = new HttpJsonRequest(getInstance().getReactApplicationContext(), customUploadId, url)
                   .setMethod(method)
                   .addHeader("Content-Type", "application/json");
         } else {
-          request = new MultipartUploadRequest(getInstance().getReactApplicationContext(), customUploadId, url)
-                  .addFileToUpload(filePath, options.getString("field"));
+          if (!new File(filePath).exists()) {
+            Log.e(TAG, String.format("ERROR STARTING JOB %s: file does not exist %s", customUploadId, filePath));
+            WritableMap params = Arguments.createMap();
+            params.putString("id", customUploadId);
+            sendEvent("error", params);
+            return false;
+          }
+          bodySizeBits = (int) new File(filePath).length() * 8;
+          Log.e(TAG, String.format("%s is size %d", filePath, bodySizeBits));
+
+          if (requestType.equals("raw")) {
+            request = new BinaryUploadRequest(getInstance().getReactApplicationContext(), customUploadId, url)
+                    .setFileToUpload(filePath);
+          } else {
+            request = new MultipartUploadRequest(getInstance().getReactApplicationContext(), customUploadId, url)
+                    .addFileToUpload(filePath, options.getString("field"));
+          }
         }
 
         if (statusDelegate == null) {
@@ -383,6 +404,7 @@ public class UploaderModule extends ReactContextBaseJavaModule {
               else
                 Log.e(TAG, "onError has no exception, server response is " + serverResponse.getBodyAsString());
               sendEvent("error", params);
+              UploadService.stopUpload(uploadInfo.getUploadId());
               jobInProgress = false;
             }
 
@@ -392,10 +414,10 @@ public class UploaderModule extends ReactContextBaseJavaModule {
               params.putString("id", uploadInfo.getUploadId());
               params.putInt("responseCode", serverResponse.getHttpCode());
               params.putString("responseBody", serverResponse.getBodyAsString());
-              params.putInt("duration", (int) uploadInfo.getElapsedTime());
+              params.putDouble("duration", uploadInfo.getElapsedTime() / 1000.0);
               sendEvent("completed", params);
               jobInProgress = false;
-              Log.d(TAG, String.format("COMPLETED JOB %s", uploadInfo.getUploadId()));
+              Log.d(TAG, String.format("COMPLETED JOB %s, duration %d", uploadInfo.getUploadId(), uploadInfo.getElapsedTime()));
             }
 
             @Override
@@ -423,8 +445,9 @@ public class UploaderModule extends ReactContextBaseJavaModule {
         if (options.has("parameters")) {
           if (requestType.equals("json")) {
             request.addParameter("body", options.getString("parameters"));
+            bodySizeBits = options.getString("parameters").length() * 8;
           } else {
-            ReadableMap parameters = utils.convertJsonToMap(options.getJSONObject("parameters"));
+            ReadableMap parameters = Utils.convertJsonToMap(options.getJSONObject("parameters"));
             ReadableMapKeySetIterator keys = parameters.keySetIterator();
             while (keys.hasNextKey()) {
               String key = keys.nextKey();
@@ -434,7 +457,7 @@ public class UploaderModule extends ReactContextBaseJavaModule {
         }
 
         if (options.has("headers")) {
-          ReadableMap headers = utils.convertJsonToMap(options.getJSONObject("headers"));
+          ReadableMap headers = Utils.convertJsonToMap(options.getJSONObject("headers"));
           ReadableMapKeySetIterator keys = headers.keySetIterator();
           while (keys.hasNextKey()) {
             String key = keys.nextKey();
@@ -444,11 +467,21 @@ public class UploaderModule extends ReactContextBaseJavaModule {
 
         // promise.resolve(uploadId);
         String uploadId = request.startUpload();
+
+        // sent initialize event
+        WritableMap params = Arguments.createMap();
+        params.putString("id", uploadId);
+        params.putInt("size", bodySizeBits);
+        sendEvent("initialize", params);
+
         Log.d(TAG, String.format("STARTED JOB %s", uploadId));
       } catch (Exception exc) {
         Log.e(TAG, exc.getMessage(), exc);
         // promise.reject(exc);
+        return false;
       }
+
+      return true;
     }
   }
 
