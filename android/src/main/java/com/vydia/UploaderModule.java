@@ -6,8 +6,15 @@ import android.support.annotation.Nullable;
 import android.util.Log;
 import android.webkit.MimeTypeMap;
 
+import com.birbit.android.jobqueue.CancelReason;
+import com.birbit.android.jobqueue.Job;
+import com.birbit.android.jobqueue.JobManager;
+import com.birbit.android.jobqueue.Params;
+import com.birbit.android.jobqueue.RetryConstraint;
 import com.birbit.android.jobqueue.config.Configuration;
 import com.birbit.android.jobqueue.log.CustomLogger;
+import com.birbit.android.jobqueue.persistentQueue.sqlite.SqliteJobQueue.JobSerializer;
+import com.birbit.android.jobqueue.scheduling.FrameworkJobSchedulerService;
 import com.facebook.react.bridge.Arguments;
 import com.facebook.react.bridge.Promise;
 import com.facebook.react.bridge.ReactApplicationContext;
@@ -18,14 +25,16 @@ import com.facebook.react.bridge.ReadableMapKeySetIterator;
 import com.facebook.react.bridge.ReadableType;
 import com.facebook.react.bridge.WritableMap;
 import com.facebook.react.bridge.WritableNativeMap;
-import com.facebook.react.bridge.WritableNativeArray;
-import com.facebook.react.bridge.WritableArray;
 import com.facebook.react.modules.core.DeviceEventManagerModule;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.vydia.RNUploader.Utils.Utils;
+import com.vydia.RNUploader.services.UploaderService;
 
 import net.gotev.uploadservice.BinaryUploadRequest;
+import net.gotev.uploadservice.HttpJsonRequest;
 import net.gotev.uploadservice.HttpUploadRequest;
 import net.gotev.uploadservice.MultipartUploadRequest;
-import net.gotev.uploadservice.HttpJsonRequest;
 import net.gotev.uploadservice.ServerResponse;
 import net.gotev.uploadservice.UploadInfo;
 import net.gotev.uploadservice.UploadNotificationConfig;
@@ -33,60 +42,27 @@ import net.gotev.uploadservice.UploadService;
 import net.gotev.uploadservice.UploadStatusDelegate;
 import net.gotev.uploadservice.okhttp.OkHttpStack;
 
-import java.io.File;
-import java.lang.Object;
-import java.io.IOException;
-import java.lang.ClassNotFoundException;
-import java.io.ByteArrayOutputStream;
-import java.io.ObjectOutputStream;
-import java.io.ObjectOutput;
-import java.io.ObjectInputStream;
-import java.io.ByteArrayInputStream;
-import java.util.UUID;
-import java.nio.charset.Charset;
-
-import java.util.*;
-import java.lang.reflect.Field;
-
 import org.json.JSONException;
 import org.json.JSONObject;
-import org.json.JSONArray;
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-import com.google.gson.JsonObject;
-import com.google.gson.annotations.*;
 
-import com.birbit.android.jobqueue.JobManager;
-import com.birbit.android.jobqueue.scheduling.FrameworkJobSchedulerService;
-import com.birbit.android.jobqueue.JobManager;
-import com.birbit.android.jobqueue.config.Configuration;
-import com.birbit.android.jobqueue.log.CustomLogger;
-import com.birbit.android.jobqueue.scheduling.GcmJobSchedulerService;
-//import com.google.android.gms.common.ConnectionResult;
-//import com.google.android.gms.common.GoogleApiAvailability;
-import com.birbit.android.jobqueue.persistentQueue.sqlite.SqliteJobQueue.JobSerializer;
-
-import com.birbit.android.jobqueue.CancelReason;
-import com.birbit.android.jobqueue.Job;
-import com.birbit.android.jobqueue.Params;
-import com.birbit.android.jobqueue.RetryConstraint;
-
-import com.vydia.RNUploader.services.UploaderService;
-import com.vydia.RNUploader.Utils.Utils;
+import java.io.File;
+import java.io.IOException;
+import java.nio.charset.Charset;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
 
 
 
 public class UploaderModule extends ReactContextBaseJavaModule {
   private static final String TAG = "UploaderBridge";
   private static UploaderModule instance;
-  private JobManager queue;
-  private boolean jobInProgress;
+  private Map<String, JobManager> queues = new HashMap<>();
 
   public UploaderModule(ReactApplicationContext reactContext) {
     super(reactContext);
     UploadService.NAMESPACE = reactContext.getApplicationInfo().packageName;
     UploadService.HTTP_STACK = new OkHttpStack();
-    queue = getQueue();
     instance = this;
   }
 
@@ -239,14 +215,15 @@ public class UploaderModule extends ReactContextBaseJavaModule {
       }
 
       // Add request to Queue
-      queue.addJobInBackground(new ProcessJob(jobOptions));
+      String queueId = jobOptions.has("queueId") ? jobOptions.getString("queueId") : "default";
+      Log.e(TAG, "putting " + uploadId + " on queue " + queueId);
+      getQueue(queueId).addJobInBackground(new ProcessJob(jobOptions));
 
       // Resolve uploadId
       promise.resolve(uploadId);
     } catch(Exception error) {
       Log.e(TAG, error.getMessage(), error);
       promise.reject(error);
-      return;
     }
   }
 
@@ -298,11 +275,6 @@ public class UploaderModule extends ReactContextBaseJavaModule {
       // onRun() finishes.
       Log.d(TAG, String.format("ON RUN %s", options));
       jobInProgress = startUploadJob(options);
-      if (!jobInProgress) {
-        JSONObject optionsObj = new JSONObject(options);
-        UploadService.stopUpload(optionsObj.getString("queueId"));
-        return;
-      }
       while (jobInProgress) {
         Log.d(TAG, String.format("JOB IN PROGRESS %s", options));
         Thread.sleep(1000);
@@ -373,7 +345,6 @@ public class UploaderModule extends ReactContextBaseJavaModule {
             return false;
           }
           bodySizeBits = (int) new File(filePath).length() * 8;
-          Log.e(TAG, String.format("%s is size %d", filePath, bodySizeBits));
 
           if (requestType.equals("raw")) {
             request = new BinaryUploadRequest(getInstance().getReactApplicationContext(), customUploadId, url)
@@ -511,36 +482,38 @@ public class UploaderModule extends ReactContextBaseJavaModule {
     }
   }
 
-  private void configureQueue() {
+  private CustomLogger logger = new CustomLogger() {
+    private static final String TAG = "Queue";
+
+    @Override
+    public boolean isDebugEnabled() {
+      return true;
+    }
+
+    @Override
+    public void d(String text, Object... args) {
+      Log.d(TAG, String.format(text, args));
+    }
+
+    @Override
+    public void e(Throwable t, String text, Object... args) {
+      Log.e(TAG, String.format(text, args), t);
+    }
+
+    @Override
+    public void e(String text, Object... args) {
+      Log.e(TAG, String.format(text, args));
+    }
+
+    @Override
+    public void v(String text, Object... args) { }
+  };
+
+  private JobManager configureQueue() {
     JobSerializer jobSerializer = new GsonSerializer();
+
     Configuration.Builder builder = new Configuration.Builder(this.getReactApplicationContext())
-            .customLogger(new CustomLogger() {
-              private static final String TAG = "Queue";
-              @Override
-              public boolean isDebugEnabled() {
-                return true;
-              }
-
-              @Override
-              public void d(String text, Object... args) {
-                Log.d(TAG, String.format(text, args));
-              }
-
-              @Override
-              public void e(Throwable t, String text, Object... args) {
-                Log.e(TAG, String.format(text, args), t);
-              }
-
-              @Override
-              public void e(String text, Object... args) {
-                Log.e(TAG, String.format(text, args));
-              }
-
-              @Override
-              public void v(String text, Object... args) {
-
-              }
-            })
+            //.customLogger(logger)
             .jobSerializer(jobSerializer)
             .minConsumerCount(1)//always keep at least one consumer alive
             .maxConsumerCount(1)//up to 1 consumers at a time
@@ -551,21 +524,14 @@ public class UploaderModule extends ReactContextBaseJavaModule {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
         builder.scheduler(FrameworkJobSchedulerService.createSchedulerFor(this.getReactApplicationContext(),
                 UploaderService.class), true);
-    // } else {
-    //     int enableGcm = GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(this);
-    //     if (enableGcm == ConnectionResult.SUCCESS) {
-    //         builder.scheduler(GcmJobSchedulerService.createSchedulerFor(this,
-    //                 MyGcmJobService.class), true);
-    //     }
     }
-    queue = new JobManager(builder.build());
+    return new JobManager(builder.build());
   }
 
-  public synchronized JobManager getQueue() {
-    if (queue == null) {
-      configureQueue();
-    }
-    return queue;
+  public synchronized JobManager getQueue(String queueId) {
+    if (!queues.containsKey(queueId))
+        queues.put(queueId, configureQueue());
+    return queues.get(queueId);
   }
 
   public static UploaderModule getInstance() {
