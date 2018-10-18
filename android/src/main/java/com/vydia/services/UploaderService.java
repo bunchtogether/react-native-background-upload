@@ -10,6 +10,6 @@ public class UploaderService extends FrameworkJobSchedulerService {
     @NonNull
     @Override
     protected JobManager getJobManager() {
-        return UploaderModule.getInstance().getQueue();
+        return UploaderModule.getInstance().getQueue("default");
     }
 }
