@@ -17,6 +17,7 @@
 @property (nonatomic, strong) NSURLSession *session;
 @property (nonatomic, strong) NSURLSession *backgroundSession;
 @property (nonatomic, strong) Reachability *reach;
+@property (nonatomic, strong) dispatch_queue_t flushUploadIdsQueue;
 @property (nonatomic, assign) BOOL suspended;
 
 @end
@@ -84,6 +85,7 @@
         self.mainOperationQueue.maxConcurrentOperationCount = 10;
         self.uploadIds = [[NSMutableOrderedSet alloc] init];
         self.operationQueues = [NSMutableDictionary dictionary];
+        self.flushUploadIdsQueue = dispatch_queue_create("Background Uploader Upload IDs Queue", DISPATCH_QUEUE_SERIAL);
         NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
         NSArray *ids = [defaults stringArrayForKey: @"backgroundUploads"];
 #if (TARGET_IPHONE_SIMULATOR)
@@ -104,7 +106,7 @@
         config.waitsForConnectivity = NO;
         self.session = [NSURLSession sessionWithConfiguration:config delegate:self delegateQueue:nil];
         backgroundConfig.allowsCellularAccess = YES;
-        backgroundConfig.requestCachePolicy = NSURLRequestReloadIgnoringLocalCacheData;
+        backgroundConfig.requestCachePolicy = NSURLRequestUseProtocolCachePolicy;
         backgroundConfig.URLCache = nil;
         backgroundConfig.HTTPCookieAcceptPolicy = NSHTTPCookieAcceptPolicyAlways;
         backgroundConfig.timeoutIntervalForResource = 60.0;
@@ -154,7 +156,7 @@
     if(self.suspended) {
         return;
     }
-    NSLog(@"Uploader: pause");
+    NSLog(@"RN Uploader: pause");
     self.suspended = YES;
     self.mainOperationQueue.suspended = YES;
     for(UploadSessionOperation *operation in self.mainOperationQueue.operations) {
@@ -180,7 +182,7 @@
     if(!self.suspended) {
         return;
     }
-    NSLog(@"Uploader: resume");
+    NSLog(@"RN Uploader: resume");
     self.suspended = NO;
     self.mainOperationQueue.suspended = NO;
     for(UploadSessionOperation *operation in self.mainOperationQueue.operations) {
@@ -253,7 +255,7 @@
             [self.operationQueues removeObjectForKey: queueId];
         }
     }
-    NSLog(@"No operation %@", uploadId);
+    NSLog(@"RN Uploader: No operation %@", uploadId);
 }
 
 /*
@@ -340,10 +342,12 @@
     [self clearOperation:uploadId];
     @synchronized(self.uploadIds) {
         [self.uploadIds removeObject:uploadId];
-        NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
+    }
+    dispatch_async(self.flushUploadIdsQueue, ^{
+        NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
         [defaults removeObjectForKey:uploadId];
         [defaults setObject:[self.uploadIds array] forKey:@"backgroundUploads"];
-    }
+    });
 }
 
 - (void)enqueueUpload: (NSString *)uploadId options:(NSDictionary *)options {
@@ -449,11 +453,11 @@
     [self sendEventWithName:@"RNFileUploader-initialize" body:eventData];
     [queue addOperation:operation];
     
-    NSLog(@"Request: %@ | %@ | %p", requestUrl.absoluteString, uploadId, queue);
+    NSLog(@"RN Uploader: %@ | %@ | %p", requestUrl.absoluteString, uploadId, queue);
     if(queueId) {
-        NSLog(@"Pending in queue %@ (%@): %lu", queueId, queue.suspended ? @"Suspended" : @"Active", queue.operationCount);
+        NSLog(@"RN Uploader: Pending in queue %@ (%@): %lu", queueId, queue.suspended ? @"Suspended" : @"Active", queue.operationCount);
     } else {
-        NSLog(@"Pending in main queue (%@): %lu", queue.suspended ? @"Suspended" : @"Active", queue.operationCount);
+        NSLog(@"RN Uploader: Pending in main queue (%@): %lu", queue.suspended ? @"Suspended" : @"Active", queue.operationCount);
     }
 }
 
@@ -472,11 +476,13 @@
 {
     NSString *uploadId = [[[NSUUID UUID] UUIDString] lowercaseString];
     @synchronized(self.uploadIds) {
-        NSUserDefaults* defaults = [NSUserDefaults standardUserDefaults];
-        [defaults setObject:options forKey:uploadId];
         [self.uploadIds addObject:uploadId];
-        [defaults setObject:[self.uploadIds array] forKey:@"backgroundUploads"];
     }
+    dispatch_async(self.flushUploadIdsQueue, ^{
+        NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+        [defaults setObject:options forKey:uploadId];
+        [defaults setObject:[self.uploadIds array] forKey:@"backgroundUploads"];
+    });
     [self enqueueUpload:uploadId options:options];
     resolve(uploadId);
 }
@@ -503,7 +509,7 @@
             BOOL cancelQueue = NO;
             for(UploadSessionOperation *operation in queue.operations) {
                 if([operation.uploadId isEqualToString:cancelUploadId]) {
-                    NSLog(@"Cancelling operations in queue %@ after individual cancellation of %@", queueId, operation.uploadId);
+                    NSLog(@"RN Uploader: Cancelling operations in queue %@ after individual cancellation of %@", queueId, operation.uploadId);
                     cancelQueue = YES;
                     break;
                 }
@@ -564,7 +570,7 @@ totalBytesExpectedToSend:(int64_t)totalBytesExpectedToSend {
         progress = 100.0 * (float)totalBytesSent / (float)totalBytesExpectedToSend;
     }
     [self sendEventWithName:@"RNFileUploader-progress" body:@{ @"id": task.taskDescription, @"progress": [NSNumber numberWithFloat:progress] }];
-    NSLog(@"Progress: %@, %@", [NSNumber numberWithFloat:progress], task.taskDescription);
+    NSLog(@"RN Uploader: Progress %@, %@", [NSNumber numberWithFloat:progress], task.taskDescription);
 }
 
 - (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)dataTask didReceiveData:(NSData *)data {
@@ -585,7 +591,7 @@ totalBytesExpectedToSend:(int64_t)totalBytesExpectedToSend {
 didFinishCollectingMetrics:(NSURLSessionTaskMetrics *)metrics {
     NSString *uploadId = task.taskDescription;
     if (!uploadId) {
-        NSLog(@"No uploadId in task");
+        NSLog(@"RN Uploader: No uploadId in task");
         return;
     }
     self.metrics[uploadId] = metrics;
@@ -601,7 +607,7 @@ didCompleteWithError:(NSError *)error {
     NSString *uploadId = task.taskDescription;
     
     if (!uploadId) {
-        NSLog(@"No uploadId in task");
+        NSLog(@"RN Uploader: No uploadId in task");
         return;
     }
     
@@ -628,16 +634,16 @@ didCompleteWithError:(NSError *)error {
         [eventData setObject:[NSNull null] forKey:@"duration"];
     }
     
-    NSLog(@"Completion handler %@: %@", uploadId, eventData);
+    NSLog(@"RN Uploader: Completion handler %@: %@", uploadId, eventData);
     
     if (error == nil) {
         [self sendEventWithName:@"RNFileUploader-completed" body:eventData];
     } else {
         if (error.code == NSURLErrorCancelled) {
-            NSLog(@"Upload %@ cancelled", uploadId);
+            NSLog(@"RN Uploader: Upload %@ cancelled", uploadId);
             return;
         }
-        NSLog(@"Upload error for %@: %@", uploadId, error.localizedDescription);
+        NSLog(@"RN Uploader: Upload error for %@: %@", uploadId, error.localizedDescription);
         for(UploadSessionOperation *operation in self.mainOperationQueue.operations) {
             if([operation.uploadId isEqualToString:uploadId] && [operation attempts] < 250) {
                 [operation retry];
@@ -665,7 +671,7 @@ didCompleteWithError:(NSError *)error {
                 queue = [self.operationQueues objectForKey:queueId];
                 for(UploadSessionOperation *operation in queue.operations) {
                     if([operation.uploadId isEqualToString:uploadId]) {
-                        NSLog(@"Cancelling operations in queue %@ after failure of %@", queueId, uploadId);
+                        NSLog(@"RN Uploader: Cancelling operations in queue %@ after failure of %@", queueId, uploadId);
                         [queue cancelAllOperations];
                     }
                 }
