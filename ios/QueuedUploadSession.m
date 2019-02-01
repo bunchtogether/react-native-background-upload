@@ -62,6 +62,7 @@ BLOCK(); \
 }
 
 - (void)resume {
+    NSLog(@"RN Uploader: Resuming after retry attempt %d for %@", self.attempt, self.uploadId);
     UIApplicationState state = [[UIApplication sharedApplication] applicationState];
     NSURLSession *session = (state == UIApplicationStateBackground || state == UIApplicationStateInactive) ? self.backgroundSession : self.session;
     if(self.fileURL && self.request) {
@@ -88,9 +89,13 @@ BLOCK(); \
 
 - (void)retry {
     [self.task cancel];
-    int waitTime = self.attempt < 5 ? 60 : 600;
-    [self performSelector:@selector(resume) withObject:self afterDelay:waitTime];
-    NSLog(@"RN Uploader: Retry attempt %d for %@ starting in %d seconds", self.attempt, self.uploadId, waitTime);
+    [self performSelectorOnMainThread:@selector(scheduleResume) withObject:nil waitUntilDone:YES];
+}
+
+- (void)scheduleResume {
+    NSTimeInterval waitTime = self.attempt < 5 ? self.attempt * self.attempt : 60;
+    NSLog(@"RN Uploader: Retry attempt %d for %@ starting in %f seconds", self.attempt, self.uploadId, waitTime);
+    [self performSelector:@selector(resume) withObject:nil afterDelay:waitTime];
     self.attempt++;
 }
 
